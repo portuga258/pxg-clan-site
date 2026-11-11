@@ -13,6 +13,7 @@ function AppRoutes() {
         clanType: user.character?.clan_type,
         level: user.character?.level,
         activityStatus: user.character?.activity_status || 'offline',
+        characters: user.characters || [],
       }
     : null;
 
@@ -25,6 +26,7 @@ function AppRoutes() {
         <Route path="/loans" element={<Loans />} />
         <Route path="/loans/add" element={<Loans />} />
         <Route path="/loans/request" element={<Loans />} />
+        <Route path="/requests" element={<Items />} />
         <Route path="/items" element={<Items />} />
         <Route path="/items/new" element={<Items />} />
         <Route path="/items/request" element={<Items />} />

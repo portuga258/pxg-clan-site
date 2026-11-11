@@ -16,6 +16,8 @@ Site completo para gerenciamento do clan **Lá Eles** do PokéXGames, com sistem
 ### 👥 Fichas de Personagem (Dossiê)
 - Perfil completo: nome, level, vocação, clan type, horário de pico
 - O próprio jogador pode atualizar seus dados e os níveis/tiers das quatro profissões
+- Uma conta pode cadastrar vários personagens, escolher o principal e alternar entre perfis
+- Os perfis de uma mesma conta compartilham o Discord vinculado
 - **4 Profissões Oficiais do PXG** (dados da Wiki oficial):
   - ⚙️ **Engenheiro** - Minérios, Pokébolas, Crypto Diamond, Tech Data | Especializações: Hacker/Mechanic
   - 📚 **Professor** - Philosopher Stone, Estudantes, Dungeons Acadêmico
@@ -32,18 +34,21 @@ Site completo para gerenciamento do clan **Lá Eles** do PokéXGames, com sistem
 - Aprovação/devolução controlada
 
 ### 🛒 Requisição de Itens (Loot & Supply Pipeline)
-- Cada solicitação é gravada no SQLite com solicitante, destinatário, item, quantidade e status
-- Catálogo de pedidos com matching por profissão/hunt
+- Requests podem ser direcionados a um membro ou abertos para todo o clã
+- Membros informam quantas unidades têm; as contribuições parciais atualizam o total e o que ainda falta
+- Cada solicitação e contribuição é gravada no SQLite com solicitante, destinatário, item, quantidade e status
+- Aba Requests com contador de pedidos que precisam da atenção do jogador
+- Um alerta sonoro toca para todos os membros conectados quando surge um request novo
 - Status: Aberto → Em Coleta → Pronto p/ Entrega → Concluído
 - Transições de status controladas por permissão (solicitante, coletor, leader/officer)
-- Modal de novo pedido com seleção de coletor, categoria, profissão necessária
-- Progress bar de coleta (quantidade coletada / total)
+- Modal de novo request com item, quantidade, destino e categoria
+- Progresso de coleta mostra a quantidade recebida e a quantidade restante
 
 ### 🔐 Contas
 - Cadastro e login com e-mail e senha
 - Senhas protegidas com hash bcrypt
 - Perfil inicial de personagem PXG (não verificado automaticamente no jogo)
-- Discord OAuth2 disponível como integração opcional
+- Vincule seu Discord ao perfil por OAuth; o usuário e o link do perfil aparecem para os demais membros
 
 ## 🛠 Tech Stack
 
@@ -122,16 +127,18 @@ PORT=3001
 NODE_ENV=development
 FRONTEND_URL=http://localhost:3000
 JWT_SECRET=your-super-secret-key-min-32-chars
-# As três variáveis DISCORD_* são opcionais
+# O Discord OAuth é opcional; vinculação de perfis exige Client ID e Client Secret
 DISCORD_CLIENT_ID=your_discord_app_id
 DISCORD_CLIENT_SECRET=your_discord_secret
-DISCORD_REDIRECT_URI=http://localhost:3000/auth/callback
+DISCORD_REDIRECT_URI=http://localhost:3001/api/auth/callback
 DATABASE_PATH=./data/pxg-clan.db
 ```
 
 O Vite encaminha `/api` ao backend local durante o desenvolvimento. Em produção, o backend serve o build do frontend e as rotas da API na mesma origem.
+Registre o valor de `DISCORD_REDIRECT_URI` nas configurações OAuth2 da aplicação Discord. Em produção no mesmo serviço, use `https://seu-dominio/api/auth/callback`.
 
 Para exibir o convite do Discord, configure `VITE_DISCORD_URL` em `frontend/.env` antes de gerar o build (veja `frontend/.env.example`).
+O alerta sonoro é habilitado após a primeira interação com a página; as permissões de reprodução automática variam por navegador. A presença online no Discord requer um bot no servidor e será configurada depois.
 
 ## 📁 Estrutura do Projeto
 

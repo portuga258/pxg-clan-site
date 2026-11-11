@@ -64,6 +64,35 @@ function CatalogItemImage({ item }) {
   );
 }
 
+function RequestContributionForm({ remaining, disabled, onContribute }) {
+  const [quantity, setQuantity] = useState(1);
+
+  return (
+    <form
+      className="flex items-end gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onContribute(Number(quantity));
+      }}
+    >
+      <Input
+        aria-label="Quantidade que você tem"
+        type="number"
+        min={1}
+        max={remaining}
+        value={quantity}
+        onChange={(event) => setQuantity(event.target.value)}
+        className="w-24"
+        disabled={disabled}
+        required
+      />
+      <Button type="submit" size="sm" disabled={disabled || !Number.isInteger(Number(quantity)) || Number(quantity) < 1 || Number(quantity) > remaining}>
+        Tenho
+      </Button>
+    </form>
+  );
+}
+
 export function Items() {
   const { user, token } = useAuth();
   const location = useLocation();
@@ -82,6 +111,7 @@ export function Items() {
     itemName: '',
     itemCategory: 'hunt-loot',
     targetId: searchParams.get('target') || '',
+    requestScope: 'member',
     quantity: 1,
     purpose: '',
     huntSource: '',
@@ -90,6 +120,7 @@ export function Items() {
 
   const characterId = user?.character?.id;
   const otherMembers = members.filter((member) => member.id !== characterId);
+  const isRequestsPage = location.pathname === '/requests';
 
   useEffect(() => {
     let active = true;
@@ -162,7 +193,8 @@ export function Items() {
         method: 'POST',
         body: JSON.stringify({
           requester_id: characterId,
-          target_id: form.targetId,
+          target_id: form.requestScope === 'clan' ? null : form.targetId,
+          request_scope: form.requestScope,
           item_name: form.itemName,
           item_category: form.itemCategory,
           quantity: Number(form.quantity),
@@ -201,18 +233,35 @@ export function Items() {
     }
   }
 
+  async function contributeToRequest(request, quantity) {
+    setPageError('');
+    setSubmitting(true);
+    try {
+      const result = await apiRequest(`/item-requests/${encodeURIComponent(request.id)}/contributions`, {
+        token,
+        method: 'POST',
+        body: JSON.stringify({ quantity }),
+      });
+      setRequests((current) => current.map((item) =>
+        item.id === request.id ? mapRequest({ ...item, ...result.request }) : item
+      ));
+    } catch (error) {
+      setPageError(`Não foi possível adicionar os itens: ${error.message}`);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <div className="container-pxg py-8">
       {pageError && <p className="mb-4 text-body-sm text-pxg-accent-neonRed" role="alert">{pageError}</p>}
 
-      <Section
+      {!isRequestsPage && <Section
         title="📦 Catálogo completo de itens PXG"
         description={`Pesquise ${itemCatalog.items.length.toLocaleString('pt-BR')} itens listados nos índices oficiais da Wiki e solicite a outro jogador.`}
-        action={
-          user
-            ? <Button onClick={() => openRequest()}>Novo pedido</Button>
-            : <Button asChild><Link to="/login">Entre para solicitar</Link></Button>
-        }
+        action={user
+          ? <Button onClick={() => openRequest()}>Novo request</Button>
+          : <Button asChild><Link to="/login">Entre para solicitar</Link></Button>}
       >
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Input
@@ -297,12 +346,14 @@ export function Items() {
             </Button>
           </div>
         </div>
-      </Section>
+      </Section>}
 
       <Section
-        title="Pedidos entre jogadores"
-        description={user ? 'Acompanhe pedidos e atualize o andamento dos que envolvem seu personagem.' : 'Entre para visualizar os pedidos do clan.'}
-        className="mt-8"
+        id="requests"
+        title="Requests"
+        description={user ? 'Peça itens para um membro ou deixe o pedido aberto para todo o clã completar a quantidade.' : 'Entre para visualizar e atender requests do clã.'}
+        className={isRequestsPage ? '' : 'mt-8'}
+        action={user && isRequestsPage ? <Button onClick={() => openRequest()}>Novo request</Button> : undefined}
       >
         {user ? (
           <>
@@ -330,20 +381,24 @@ export function Items() {
                     <div>
                       <h3 className="font-semibold text-pxg-text-primary">{request.item_name} × {request.quantity}</h3>
                       <p className="text-body-sm text-pxg-text-secondary">
-                        {request.requesterName} pediu para {request.targetName}
+                        {request.requesterName} pediu para {request.request_scope === 'clan' ? 'todo o clã' : request.targetName}
                         {request.purpose ? ` · ${request.purpose}` : ''}
                       </p>
                       <p className="text-caption text-pxg-text-muted">
-                        Coletado: {request.collectedQuantity}/{request.quantity}
+                        Já tem {request.collectedQuantity}/{request.quantity} · Faltam {Math.max(0, request.quantity - request.collectedQuantity)}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant={request.status}>{statusNames[request.status] || request.status}</Badge>
-                      {request.target_id === characterId && request.status === 'open' && (
-                        <Button size="sm" onClick={() => updateRequest(request, 'collecting')}>Iniciar coleta</Button>
-                      )}
-                      {request.target_id === characterId && request.status === 'collecting' && (
-                        <Button size="sm" onClick={() => updateRequest(request, 'ready')}>Marcar pronto</Button>
+                      {request.requester_id !== characterId &&
+                        (request.request_scope === 'clan' || request.target_id === characterId) &&
+                        ['open', 'collecting'].includes(request.status) &&
+                        request.collectedQuantity < request.quantity && (
+                          <RequestContributionForm
+                            remaining={request.quantity - request.collectedQuantity}
+                            disabled={submitting}
+                            onContribute={(quantity) => contributeToRequest(request, quantity)}
+                          />
                       )}
                       {request.requester_id === characterId && request.status === 'ready' && (
                         <Button size="sm" onClick={() => updateRequest(request, 'completed')}>Confirmar entrega</Button>
@@ -371,8 +426,8 @@ export function Items() {
       <Modal
         isOpen={isRequestOpen}
         onClose={() => setIsRequestOpen(false)}
-        title="Solicitar item a outro jogador"
-        description="O jogador escolhido receberá o pedido na lista do clan."
+        title="Criar request de item"
+        description="Defina a quantidade e escolha se o pedido será para um membro ou para todo o clã."
         size="lg"
       >
         <form onSubmit={submitRequest} className="space-y-4">
@@ -389,13 +444,14 @@ export function Items() {
           </datalist>
           <div className="grid gap-4 sm:grid-cols-2">
             <Select
-              label="Solicitar para *"
-              value={form.targetId}
-              onChange={(event) => setForm({ ...form, targetId: event.target.value })}
-              options={otherMembers.map((member) => ({ value: member.id, label: `${member.characterName} (Lv. ${member.level})` }))}
-              placeholder="Escolha outro jogador"
+              label="Visibilidade do request *"
+              value={form.requestScope}
+              onChange={(event) => setForm({ ...form, requestScope: event.target.value })}
+              options={[
+                { value: 'member', label: 'Um membro específico' },
+                { value: 'clan', label: 'Todo o clã' },
+              ]}
               required
-              disabled={!otherMembers.length}
             />
             <Select
               label="Categoria *"
@@ -405,7 +461,18 @@ export function Items() {
               required
             />
           </div>
-          {!otherMembers.length && (
+          {form.requestScope === 'member' && (
+            <Select
+              label="Solicitar para *"
+              value={form.targetId}
+              onChange={(event) => setForm({ ...form, targetId: event.target.value })}
+              options={otherMembers.map((member) => ({ value: member.id, label: `${member.characterName} (Lv. ${member.level})` }))}
+              placeholder="Escolha outro jogador"
+              required
+              disabled={!otherMembers.length}
+            />
+          )}
+          {form.requestScope === 'member' && !otherMembers.length && (
             <p className="text-body-sm text-pxg-text-secondary">
               Ainda não há outro jogador cadastrado para receber pedidos. Compartilhe a página de cadastro com o clan.
             </p>
@@ -443,8 +510,8 @@ export function Items() {
           {requestError && <p className="text-body-sm text-pxg-accent-neonRed" role="alert">{requestError}</p>}
           <div className="modal-footer">
             <Button type="button" variant="ghost" onClick={() => setIsRequestOpen(false)}>Voltar</Button>
-            <Button type="submit" disabled={submitting || !otherMembers.length}>
-              {submitting ? 'Enviando...' : 'Enviar pedido'}
+            <Button type="submit" disabled={submitting || (form.requestScope === 'member' && !otherMembers.length)}>
+              {submitting ? 'Enviando...' : 'Criar request'}
             </Button>
           </div>
         </form>

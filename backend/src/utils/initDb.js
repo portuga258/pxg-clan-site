@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   discord_id TEXT UNIQUE,
   username TEXT NOT NULL,
+  discord_username TEXT,
   discriminator TEXT,
   avatar TEXT,
   email TEXT COLLATE NOCASE UNIQUE,
@@ -26,11 +27,21 @@ CREATE TABLE IF NOT EXISTS users (
   last_login_at INTEGER
 );
 
+-- One-time OAuth state for linking Discord to an existing account
+CREATE TABLE IF NOT EXISTS discord_oauth_states (
+  state_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER DEFAULT (strftime('%s', 'now')),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 -- Characters table (Game characters linked to users)
 CREATE TABLE IF NOT EXISTS characters (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   name TEXT NOT NULL,
+  is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
   level INTEGER DEFAULT 1,
   vocation TEXT,
   clan_type TEXT CHECK (clan_type IN ('malefic', 'naturia', 'wingeon', 'seavell', 'volcanic', 'orebound', 'psycraft', 'gardsen')),
@@ -88,6 +99,7 @@ CREATE TABLE IF NOT EXISTS item_requests (
   id TEXT PRIMARY KEY,
   requester_id TEXT NOT NULL,
   target_id TEXT NOT NULL,
+  request_scope TEXT NOT NULL DEFAULT 'member' CHECK (request_scope IN ('member', 'clan')),
   item_name TEXT NOT NULL,
   item_category TEXT NOT NULL,
   quantity INTEGER NOT NULL DEFAULT 1,
@@ -103,6 +115,17 @@ CREATE TABLE IF NOT EXISTS item_requests (
   completed_at INTEGER,
   FOREIGN KEY (requester_id) REFERENCES characters(id) ON DELETE CASCADE,
   FOREIGN KEY (target_id) REFERENCES characters(id) ON DELETE CASCADE
+);
+
+-- Contributions to item requests
+CREATE TABLE IF NOT EXISTS item_request_contributions (
+  id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL,
+  contributor_id TEXT NOT NULL,
+  quantity INTEGER NOT NULL CHECK (quantity > 0),
+  created_at INTEGER DEFAULT (strftime('%s', 'now')),
+  FOREIGN KEY (request_id) REFERENCES item_requests(id) ON DELETE CASCADE,
+  FOREIGN KEY (contributor_id) REFERENCES characters(id) ON DELETE CASCADE
 );
 
 -- Announcements table
@@ -143,10 +166,54 @@ CREATE INDEX IF NOT EXISTS idx_pokemon_loans_status ON pokemon_loans(status);
 CREATE INDEX IF NOT EXISTS idx_item_requests_requester ON item_requests(requester_id);
 CREATE INDEX IF NOT EXISTS idx_item_requests_target ON item_requests(target_id);
 CREATE INDEX IF NOT EXISTS idx_item_requests_status ON item_requests(status);
+CREATE INDEX IF NOT EXISTS idx_item_request_contributions_request ON item_request_contributions(request_id);
 CREATE INDEX IF NOT EXISTS idx_announcements_pinned ON announcements(pinned, created_at DESC);
 `;
 
 db.exec(schema);
+
+const characterColumns = db.pragma('table_info(characters)');
+if (!characterColumns.some((column) => column.name === 'is_primary')) {
+  db.exec('ALTER TABLE characters ADD COLUMN is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1))');
+}
+db.exec(`
+  UPDATE characters
+  SET is_primary = 1
+  WHERE user_id IS NOT NULL
+    AND is_primary = 0
+    AND NOT EXISTS (
+      SELECT 1 FROM characters AS primary_character
+      WHERE primary_character.user_id = characters.user_id AND primary_character.is_primary = 1
+    )
+    AND id = (
+      SELECT id FROM characters AS first_character
+      WHERE first_character.user_id = characters.user_id
+      ORDER BY first_character.created_at ASC, first_character.id ASC
+      LIMIT 1
+    )
+`);
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_characters_one_primary_per_user ON characters(user_id) WHERE is_primary = 1');
+
+const userColumns = db.pragma('table_info(users)');
+if (!userColumns.some((column) => column.name === 'discord_username')) {
+  db.exec('ALTER TABLE users ADD COLUMN discord_username TEXT');
+  db.exec(`
+    UPDATE users
+    SET discord_username = username
+    WHERE discord_id IS NOT NULL AND discord_username IS NULL
+  `);
+}
+
+const itemRequestColumns = db.pragma('table_info(item_requests)');
+if (!itemRequestColumns.some((column) => column.name === 'request_scope')) {
+  db.exec(`
+    ALTER TABLE item_requests
+    ADD COLUMN request_scope TEXT NOT NULL DEFAULT 'member'
+    CHECK (request_scope IN ('member', 'clan'))
+  `);
+}
+db.exec('CREATE INDEX IF NOT EXISTS idx_item_requests_scope_status ON item_requests(request_scope, status)');
+
 console.log('Database schema created successfully!');
 
 const professionTable = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'professions'").get();

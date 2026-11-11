@@ -42,6 +42,8 @@ export function toMember(character) {
     badges: character.discord_role === 'leader' ? ['leader'] : character.discord_role === 'officer' ? ['officer'] : [],
     joinDate: character.join_date ? new Date(character.join_date * 1000).toISOString() : character.created_at,
     discordId: character.discord_id,
+    discordUsername: character.discord_username,
+    discordAvatar: character.discord_avatar,
     bio: character.bio,
     email: character.email,
   };

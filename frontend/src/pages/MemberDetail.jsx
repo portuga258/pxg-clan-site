@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { formatDate } from '../lib/utils';
 import { apiRequest, toMember } from '../lib/api';
 import { useAuth } from '../lib/AuthContext';
@@ -62,7 +62,9 @@ const professionTiers = [
 
 export function MemberDetail() {
   const { id } = useParams();
-  const { token, user, updateCharacter } = useAuth();
+  const { token, user, updateCharacter, switchCharacter, refreshAccount } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [member, setMember] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -70,6 +72,39 @@ export function MemberDetail() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState('');
   const [profileForm, setProfileForm] = useState(null);
+  const [isAddCharacterOpen, setIsAddCharacterOpen] = useState(false);
+  const [newCharacterForm, setNewCharacterForm] = useState({
+    name: '',
+    level: 1,
+    vocation: '',
+    clan_type: '',
+  });
+  const [savingCharacter, setSavingCharacter] = useState(false);
+  const [accountError, setAccountError] = useState('');
+  const [discordNotice, setDiscordNotice] = useState('');
+  const [discordLinkError, setDiscordLinkError] = useState('');
+  const [linkingDiscord, setLinkingDiscord] = useState(false);
+
+  useEffect(() => {
+    const status = searchParams.get('discord');
+    if (!status) return;
+
+    const messages = {
+      linked: 'Discord vinculado ao seu perfil.',
+      already_linked: 'Esta conta do Discord já está vinculada a outro perfil.',
+      already_connected: 'Seu perfil já está vinculado a outra conta do Discord.',
+      cancelled: 'A vinculação com Discord foi cancelada.',
+      failed: 'Não foi possível vincular o Discord. Tente novamente.',
+    };
+    const message = messages[status] || messages.failed;
+    setDiscordNotice(message);
+    setDiscordLinkError(status !== 'linked');
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete('discord');
+      return next;
+    }, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     let active = true;
@@ -111,7 +146,9 @@ export function MemberDetail() {
     .map(p => ({ key: p, ...member.professions[p] }));
 
   const favoriteHunts = member.favoriteHunts || [];
-  const isOwnProfile = user?.character?.id === member.id;
+  const accountCharacters = user?.characters || [];
+  const isOwnProfile = accountCharacters.some((character) => character.id === member.id)
+    || user?.character?.id === member.id;
 
   function openProfileEditor() {
     setProfileError('');
@@ -130,6 +167,60 @@ export function MemberDetail() {
       })),
     });
     setIsEditOpen(true);
+  }
+
+  async function linkDiscord() {
+    setLinkingDiscord(true);
+    setDiscordNotice('');
+    setDiscordLinkError('');
+    try {
+      const result = await apiRequest('/auth/discord/link', { token, method: 'POST' });
+      window.location.assign(result.authorization_url);
+    } catch (error) {
+      setDiscordNotice(error.message);
+      setDiscordLinkError(true);
+      setLinkingDiscord(false);
+    }
+  }
+
+  async function addCharacter(event) {
+    event.preventDefault();
+    setSavingCharacter(true);
+    setAccountError('');
+    try {
+      const result = await apiRequest('/characters/me', {
+        token,
+        method: 'POST',
+        body: JSON.stringify({
+          ...newCharacterForm,
+          level: Number(newCharacterForm.level),
+          clan_type: newCharacterForm.clan_type || '',
+        }),
+      });
+      await refreshAccount();
+      switchCharacter(result.character.id);
+      setIsAddCharacterOpen(false);
+      setNewCharacterForm({ name: '', level: 1, vocation: '', clan_type: '' });
+      navigate(`/members/${result.character.id}`);
+    } catch (error) {
+      setAccountError(error.message);
+    } finally {
+      setSavingCharacter(false);
+    }
+  }
+
+  async function makePrimaryCharacter(characterId) {
+    setAccountError('');
+    try {
+      await apiRequest(`/characters/${encodeURIComponent(characterId)}/primary`, {
+        token,
+        method: 'PUT',
+      });
+      await refreshAccount();
+      switchCharacter(characterId);
+    } catch (error) {
+      setAccountError(error.message);
+    }
   }
 
   async function saveProfile(event) {
@@ -166,6 +257,11 @@ export function MemberDetail() {
 
   return (
     <div className="min-h-screen">
+      {discordNotice && (
+        <div className={`container-pxg pt-4 text-body-sm ${discordLinkError ? 'text-pxg-accent-neonRed' : 'text-pxg-accent-neonGreen'}`} role={discordLinkError ? 'alert' : 'status'}>
+          {discordNotice}
+        </div>
+      )}
       <Section
         title=""
         action={
@@ -190,6 +286,11 @@ export function MemberDetail() {
             </Button>
             {isOwnProfile && (
               <Button onClick={openProfileEditor}>Editar meu perfil</Button>
+            )}
+            {isOwnProfile && !member.discordId && (
+              <Button variant="secondary" onClick={linkDiscord} disabled={linkingDiscord}>
+                {linkingDiscord ? 'Conectando...' : 'Vincular Discord'}
+              </Button>
             )}
           </div>
         }
@@ -236,7 +337,7 @@ export function MemberDetail() {
                   <Button asChild variant="secondary">
                     <a href={`https://discord.com/users/${member.discordId}`} target="_blank" rel="noopener noreferrer">
                       <MessageSquare className="w-4 h-4 mr-1" />
-                      Discord
+                      {member.discordUsername ? `Discord · ${member.discordUsername}` : 'Discord'}
                     </a>
                   </Button>
                 )}
@@ -435,7 +536,18 @@ export function MemberDetail() {
                     </div>
                     <div>
                       <p className="text-caption text-pxg-text-muted">Discord</p>
-                      <p className="font-medium text-pxg-text-primary truncate">{member.discordId}</p>
+                      {member.discordId ? (
+                        <a
+                          className="font-medium text-pxg-accent-cyan hover:underline"
+                          href={`https://discord.com/users/${member.discordId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {member.discordUsername || member.discordId}
+                        </a>
+                      ) : (
+                        <p className="font-medium text-pxg-text-muted">Não vinculado</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -444,6 +556,99 @@ export function MemberDetail() {
           </div>
         </div>
       </Section>
+      {isOwnProfile && (
+        <div className="container-pxg pb-6">
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <CardTitle className="text-display-sm">Personagens desta conta</CardTitle>
+                  <p className="mt-1 text-body-sm text-pxg-text-secondary">
+                    Alterne entre seus personagens; o Discord vinculado aparece em todos os perfis.
+                  </p>
+                </div>
+                <Button onClick={() => { setAccountError(''); setIsAddCharacterOpen(true); }}>
+                  Adicionar personagem
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {accountError && <p className="text-body-sm text-pxg-accent-neonRed" role="alert">{accountError}</p>}
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {accountCharacters.map((character) => (
+                  <div key={character.id} className="flex items-center justify-between gap-3 rounded-lg border border-pxg-border-subtle bg-pxg-bg-tertiary/30 p-3">
+                    <Link
+                      to={`/members/${character.id}`}
+                      onClick={() => switchCharacter(character.id)}
+                      className="min-w-0 flex-1"
+                    >
+                      <p className="truncate font-medium text-pxg-text-primary hover:text-pxg-accent-cyan">
+                        {character.name}
+                      </p>
+                      <p className="text-caption text-pxg-text-muted">Level {character.level}</p>
+                    </Link>
+                    {character.is_primary ? (
+                      <Badge>Principal</Badge>
+                    ) : (
+                      <Button size="sm" variant="secondary" onClick={() => makePrimaryCharacter(character.id)}>
+                        Tornar principal
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+      <Modal
+        isOpen={isAddCharacterOpen}
+        onClose={() => setIsAddCharacterOpen(false)}
+        title="Adicionar personagem à conta"
+        description="O novo personagem terá um perfil próprio e compartilhará o Discord vinculado à conta."
+      >
+        <form onSubmit={addCharacter} className="space-y-4">
+          <Input
+            label="Nome do personagem PXG *"
+            value={newCharacterForm.name}
+            onChange={(event) => setNewCharacterForm({ ...newCharacterForm, name: event.target.value })}
+            minLength={2}
+            maxLength={32}
+            required
+          />
+          <Input
+            label="Level"
+            type="number"
+            min={1}
+            max={10000}
+            value={newCharacterForm.level}
+            onChange={(event) => setNewCharacterForm({ ...newCharacterForm, level: event.target.value })}
+            required
+          />
+          <Input
+            label="Vocação"
+            value={newCharacterForm.vocation}
+            onChange={(event) => setNewCharacterForm({ ...newCharacterForm, vocation: event.target.value })}
+            maxLength={60}
+          />
+          <Select
+            label="Clã"
+            value={newCharacterForm.clan_type}
+            onChange={(event) => setNewCharacterForm({ ...newCharacterForm, clan_type: event.target.value })}
+            options={[{ value: '', label: 'Não informado' }, ...clanOptions]}
+          />
+          <p className="text-caption text-pxg-text-muted">
+            O site não verifica automaticamente a propriedade do personagem dentro do jogo.
+          </p>
+          {accountError && <p className="text-body-sm text-pxg-accent-neonRed" role="alert">{accountError}</p>}
+          <div className="modal-footer">
+            <Button type="button" variant="ghost" onClick={() => setIsAddCharacterOpen(false)}>Cancelar</Button>
+            <Button type="submit" disabled={savingCharacter}>
+              {savingCharacter ? 'Adicionando...' : 'Adicionar personagem'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
       <Modal
         isOpen={isEditOpen}
         onClose={() => setIsEditOpen(false)}

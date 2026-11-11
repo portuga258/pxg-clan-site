@@ -9,6 +9,99 @@ const PROFILE_PROFESSIONS = ['engineer', 'professor', 'stylist', 'adventurer'];
 const PROFESSION_TIERS = ['S', 'A', 'B', 'C', 'D', 'E'];
 const CLAN_TYPES = ['malefic', 'naturia', 'wingeon', 'seavell', 'volcanic', 'orebound', 'psycraft', 'gardsen'];
 const TIER_LABELS = { S: 'Mestre', A: 'Expert', B: 'Veterano', C: 'Aprendiz', D: 'Iniciante', E: 'Novato' };
+const STARTER_PROFESSIONS = ['engineer', 'professor', 'stylist', 'adventurer'];
+
+router.post('/me', asyncHandler(async (req, res) => {
+  if (!req.user) {
+    throw new AppError('Autenticação requerida', 401);
+  }
+
+  const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+  const level = Number(req.body.level ?? 1);
+  const vocation = typeof req.body.vocation === 'string' ? req.body.vocation.trim() : '';
+  const clanType = typeof req.body.clan_type === 'string' ? req.body.clan_type : '';
+
+  if (name.length < 2 || name.length > 32) {
+    throw new AppError('Nome do personagem deve ter entre 2 e 32 caracteres', 400);
+  }
+  if (!Number.isInteger(level) || level < 1 || level > 10000) {
+    throw new AppError('Level deve ser um número entre 1 e 10000', 400);
+  }
+  if (vocation.length > 60) {
+    throw new AppError('Vocação deve ter no máximo 60 caracteres', 400);
+  }
+  if (clanType && !CLAN_TYPES.includes(clanType)) {
+    throw new AppError('Clã inválido', 400);
+  }
+  if (db.prepare('SELECT id FROM characters WHERE name = ? COLLATE NOCASE').get(name)) {
+    throw new AppError('Já existe um personagem com esse nome', 409);
+  }
+
+  const id = uuidv4();
+  const now = Math.floor(Date.now() / 1000);
+  const character = db.transaction(() => {
+    db.prepare(`
+      INSERT INTO characters (
+        id, user_id, name, is_primary, level, vocation, clan_type, activity_status,
+        join_date, created_at, updated_at
+      )
+      VALUES (?, ?, ?, 0, ?, ?, ?, 'offline', ?, ?, ?)
+    `).run(id, req.user.id, name, level, vocation || null, clanType || null, now, now, now);
+
+    const insertProfession = db.prepare(`
+      INSERT INTO professions (id, character_id, name, level, tier, rank, progress, experience, created_at, updated_at)
+      VALUES (?, ?, ?, 0, 'E', 'Novato', 0, 0, ?, ?)
+    `);
+    for (const profession of STARTER_PROFESSIONS) {
+      insertProfession.run(uuidv4(), id, profession, now, now);
+    }
+
+    return db.prepare(`
+      SELECT
+        c.*,
+        u.discord_username,
+        u.discord_id,
+        u.avatar as discord_avatar,
+        u.discriminator,
+        u.role as discord_role
+      FROM characters c
+      LEFT JOIN users u ON c.user_id = u.id
+      WHERE c.id = ?
+    `).get(id);
+  });
+
+  const createdCharacter = character();
+  const professions = db.prepare('SELECT name, level, tier, rank, progress FROM professions WHERE character_id = ?')
+    .all(id);
+
+  res.status(201).json({
+    message: 'Personagem adicionado à sua conta',
+    character: {
+      ...createdCharacter,
+      favorite_hunts: [],
+      professions,
+    },
+  });
+}));
+
+router.put('/:id/primary', asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const character = db.prepare('SELECT id, user_id FROM characters WHERE id = ?').get(id);
+  if (!character) {
+    throw new AppError('Personagem não encontrado', 404);
+  }
+  if (!req.user || character.user_id !== req.user.id) {
+    throw new AppError('Você só pode escolher um personagem da sua própria conta', 403);
+  }
+
+  db.transaction(() => {
+    db.prepare('UPDATE characters SET is_primary = 0 WHERE user_id = ?').run(req.user.id);
+    db.prepare('UPDATE characters SET is_primary = 1, updated_at = ? WHERE id = ?')
+      .run(Math.floor(Date.now() / 1000), id);
+  })();
+
+  res.json({ message: 'Personagem principal atualizado', character_id: id });
+}));
 
 /**
  * GET /api/characters
@@ -43,7 +136,10 @@ router.get('/', asyncHandler(async (req, res) => {
   const query = `
     SELECT
       c.*,
-      u.username as discord_username,
+      u.discord_username,
+      u.discord_id,
+      u.avatar as discord_avatar,
+      u.discriminator,
       u.role as discord_role
     FROM characters c
     LEFT JOIN users u ON c.user_id = u.id
@@ -100,8 +196,10 @@ router.get('/:id', asyncHandler(async (req, res) => {
   const character = db.prepare(`
     SELECT
       c.*,
-      u.username as discord_username,
+      u.discord_username,
       u.discord_id,
+      u.avatar as discord_avatar,
+      u.discriminator,
       u.role as discord_role
     FROM characters c
     LEFT JOIN users u ON c.user_id = u.id
@@ -285,7 +383,18 @@ router.put('/:id', asyncHandler(async (req, res) => {
   });
   updateProfile();
 
-  const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
+  const updated = db.prepare(`
+    SELECT
+      c.*,
+      u.discord_username,
+      u.discord_id,
+      u.avatar as discord_avatar,
+      u.discriminator,
+      u.role as discord_role
+    FROM characters c
+    LEFT JOIN users u ON c.user_id = u.id
+    WHERE c.id = ?
+  `).get(id);
   const updatedProfessions = db.prepare('SELECT name, level, tier, rank, progress FROM professions WHERE character_id = ?').all(id);
 
   res.json({

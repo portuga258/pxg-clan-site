@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import {
   Home,
@@ -15,17 +15,98 @@ import {
 } from '../../lib/icons';
 import { clanInfo } from '../../data/mockData';
 import { Avatar, Dropdown, Button } from '../ui';
+import { apiRequest } from '../../lib/api';
+import { useAuth } from '../../lib/AuthContext';
 
 const navigation = [
   { name: 'Home', href: '/', icon: Home },
   { name: 'Membros', href: '/members', icon: Users },
-  { name: 'Empréstimos', href: '/loans', icon: Package },
+  { name: 'Requests', href: '/requests', icon: Package },
   { name: 'Itens de Hunt', href: '/items', icon: ShoppingCart },
 ];
 
 export function Navbar({ user, onLogout }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [requestCount, setRequestCount] = useState(0);
+  const knownRequestIds = useRef(null);
+  const audioContext = useRef(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  const { token, switchCharacter } = useAuth();
+
+  useEffect(() => {
+    const unlockAudio = () => {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
+      if (!audioContext.current) audioContext.current = new AudioContextClass();
+      if (audioContext.current.state === 'suspended') {
+        audioContext.current.resume().catch((error) => {
+          console.error('Não foi possível habilitar o som dos requests:', error);
+        });
+      }
+    };
+
+    window.addEventListener('pointerdown', unlockAudio);
+    window.addEventListener('keydown', unlockAudio);
+    return () => {
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+      audioContext.current?.close();
+      audioContext.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!token) {
+      knownRequestIds.current = null;
+      return () => { active = false; };
+    }
+
+    const loadRequestNotifications = () => {
+      Promise.all([
+        apiRequest('/item-requests/notifications/count', { token }),
+        apiRequest('/item-requests/notifications/requests?limit=100', { token }),
+      ])
+        .then(([{ count }, { data }]) => {
+          if (!active) return;
+          setRequestCount(count);
+          const currentIds = new Set(data.map((request) => request.id));
+          if (knownRequestIds.current) {
+            const hasNewRequest = [...currentIds].some((id) => !knownRequestIds.current.has(id));
+            const context = audioContext.current;
+            if (hasNewRequest && context?.state === 'running') {
+              const oscillator = context.createOscillator();
+              const gain = context.createGain();
+              const now = context.currentTime;
+              oscillator.type = 'sine';
+              oscillator.frequency.setValueAtTime(880, now);
+              gain.gain.setValueAtTime(0.0001, now);
+              gain.gain.exponentialRampToValueAtTime(0.15, now + 0.02);
+              gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+              oscillator.connect(gain);
+              gain.connect(context.destination);
+              oscillator.start(now);
+              oscillator.stop(now + 0.36);
+            }
+          }
+          knownRequestIds.current = currentIds;
+        })
+        .catch((error) => {
+          if (active) console.error('Não foi possível atualizar as notificações de requests:', error);
+        });
+    };
+
+    loadRequestNotifications();
+    const intervalId = window.setInterval(loadRequestNotifications, 15000);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [token]);
+  const visibleRequestCount = token && user?.characterId ? requestCount : 0;
+  const switchableCharacters = user?.characters || [];
+
   const menuItems = [
     ...(clanInfo.discordUrl ? [{
       key: 'discord',
@@ -39,6 +120,17 @@ export function Navbar({ user, onLogout }) {
       icon: <User className="w-4 h-4" />,
       onClick: () => navigate(`/members/${user.characterId}`),
     }] : []),
+    ...switchableCharacters
+      .filter((character) => character.id !== user?.characterId)
+      .map((character) => ({
+        key: `character-${character.id}`,
+        label: `Usar ${character.name}${character.is_primary ? ' · Principal' : ''}`,
+        icon: <User className="w-4 h-4" />,
+        onClick: () => {
+          switchCharacter(character.id);
+          navigate(`/members/${character.id}`);
+        },
+      })),
     { key: 'logout', label: 'Sair', icon: <LogOut className="w-4 h-4" />, onClick: onLogout },
   ];
 
@@ -72,6 +164,14 @@ export function Navbar({ user, onLogout }) {
               >
                 <item.icon className="w-4 h-4" aria-hidden="true" />
                 {item.name}
+                {item.name === 'Requests' && visibleRequestCount > 0 && (
+                  <span
+                    className="ml-1 inline-flex min-w-5 items-center justify-center rounded-full bg-pxg-accent-neonRed px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
+                    aria-label={`${visibleRequestCount} requests aguardando sua atenção`}
+                  >
+                    {visibleRequestCount > 99 ? '99+' : visibleRequestCount}
+                  </span>
+                )}
               </NavLink>
             ))}
           </div>
@@ -133,9 +233,17 @@ export function Navbar({ user, onLogout }) {
                 >
                   <item.icon className="w-5 h-5" aria-hidden="true" />
                   {item.name}
+                  {item.name === 'Requests' && visibleRequestCount > 0 && (
+                    <span
+                      className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-pxg-accent-neonRed px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
+                      aria-label={`${visibleRequestCount} requests aguardando sua atenção`}
+                    >
+                      {visibleRequestCount > 99 ? '99+' : visibleRequestCount}
+                    </span>
+                  )}
                 </NavLink>
               ))}
-              <div className="pt-3 border-t border-pxg-border-subtle/30 flex items-center gap-3">
+              <div className="pt-3 border-t border-pxg-border-subtle/30 flex flex-wrap items-center gap-3">
                 {user ? (
                   <>
                     <Avatar
@@ -154,6 +262,26 @@ export function Navbar({ user, onLogout }) {
                       <Button asChild size="sm" variant="secondary">
                         <Link to={`/members/${user.characterId}`} onClick={() => setMobileMenuOpen(false)}>Meu perfil</Link>
                       </Button>
+                    )}
+                    {switchableCharacters.length > 1 && (
+                      <div className="w-full space-y-1">
+                        <p className="text-caption text-pxg-text-muted">Alternar personagem</p>
+                        {switchableCharacters
+                          .filter((character) => character.id !== user.characterId)
+                          .map((character) => (
+                            <Link
+                              key={character.id}
+                              to={`/members/${character.id}`}
+                              onClick={() => {
+                                switchCharacter(character.id);
+                                setMobileMenuOpen(false);
+                              }}
+                              className="block rounded-lg px-3 py-2 text-body-sm text-pxg-text-secondary hover:bg-pxg-bg-tertiary/50"
+                            >
+                              {character.name}{character.is_primary ? ' · Principal' : ''}
+                            </Link>
+                          ))}
+                      </div>
                     )}
                     <Button variant="ghost" size="sm" onClick={onLogout}>Sair</Button>
                   </>

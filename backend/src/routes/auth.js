@@ -1,7 +1,8 @@
 import express from 'express';
+import { createHash, randomBytes } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcryptjs';
-import { generateToken, verifyToken, JWT_SECRET } from '../middleware/auth.js';
+import { authenticateToken, generateToken, verifyToken, JWT_SECRET } from '../middleware/auth.js';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { db } from '../utils/database.js';
 
@@ -10,24 +11,26 @@ const router = express.Router();
 // Discord OAuth Configuration
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
-const DISCORD_REDIRECT_URI = process.env.DISCORD_REDIRECT_URI || 'http://localhost:3000/auth/callback';
+const DISCORD_REDIRECT_URI = process.env.DISCORD_REDIRECT_URI || 'http://localhost:3001/api/auth/callback';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const FRONTEND_BASE_URL = FRONTEND_URL.replace(/\/+$/, '');
 const STARTER_PROFESSIONS = ['engineer', 'professor', 'stylist', 'adventurer'];
 
 function getAccount(userId) {
   const user = db.prepare(`
-    SELECT id, discord_id, username, discriminator, avatar, email, role, created_at, last_login_at
+    SELECT id, discord_id, discord_username, username, discriminator, avatar, email, role, created_at, last_login_at
     FROM users WHERE id = ?
   `).get(userId);
 
   if (!user) return null;
 
-  const character = db.prepare(`
-    SELECT id, name, level, vocation, clan_type, activity_status
+  const characters = db.prepare(`
+    SELECT id, name, level, vocation, clan_type, activity_status, is_primary
     FROM characters WHERE user_id = ?
-  `).get(userId);
+    ORDER BY is_primary DESC, created_at ASC, id ASC
+  `).all(userId);
 
-  return { ...user, character };
+  return { ...user, character: characters[0] || null, characters };
 }
 
 function createAuthResponse(res, user, status = 200) {
@@ -77,8 +80,8 @@ router.post('/register', asyncHandler(async (req, res) => {
       VALUES (?, ?, ?, ?, 'member', ?, ?, ?)
     `).run(id, characterName, email, passwordHash, now, now, now);
     db.prepare(`
-      INSERT INTO characters (id, user_id, name, level, vocation, clan_type, activity_status, join_date, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'offline', ?, ?, ?)
+      INSERT INTO characters (id, user_id, name, is_primary, level, vocation, clan_type, activity_status, join_date, created_at, updated_at)
+      VALUES (?, ?, ?, 1, ?, ?, ?, 'offline', ?, ?, ?)
     `).run(characterId, id, characterName, level, vocation || null, clanType || null, now, now, now);
     const insertProfession = db.prepare(`
       INSERT INTO professions (id, character_id, name, level, tier, rank, progress, experience, created_at, updated_at)
@@ -122,19 +125,70 @@ router.get('/discord', (req, res) => {
   res.redirect(authUrl);
 });
 
+router.post('/discord/link', authenticateToken, asyncHandler(async (req, res) => {
+  if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) {
+    throw new AppError('Vinculação com Discord não está configurada', 503);
+  }
+
+  const state = randomBytes(32).toString('base64url');
+  const stateHash = createHash('sha256').update(state).digest('hex');
+  const now = Math.floor(Date.now() / 1000);
+  db.prepare('DELETE FROM discord_oauth_states WHERE expires_at <= ?').run(now);
+  db.prepare('DELETE FROM discord_oauth_states WHERE user_id = ?').run(req.user.id);
+  db.prepare(`
+    INSERT INTO discord_oauth_states (state_hash, user_id, expires_at)
+    VALUES (?, ?, ?)
+  `).run(stateHash, req.user.id, now + 600);
+
+  const params = new URLSearchParams({
+    client_id: DISCORD_CLIENT_ID,
+    redirect_uri: DISCORD_REDIRECT_URI,
+    response_type: 'code',
+    scope: 'identify',
+    state,
+    prompt: 'consent',
+  });
+  res.json({ authorization_url: `https://discord.com/oauth2/authorize?${params}` });
+}));
+
 /**
  * GET /api/auth/callback
  * Handle Discord OAuth2 callback
  */
 router.get('/callback', asyncHandler(async (req, res) => {
-  const { code, error } = req.query;
+  const { code, error, state } = req.query;
+  let linkingUserId = null;
 
-  if (error) {
-    return res.redirect(`${FRONTEND_URL}/login?error=${encodeURIComponent(error)}`);
+  if (state !== undefined) {
+    if (typeof state !== 'string' || !state) {
+      return res.redirect(`${FRONTEND_BASE_URL}/login?error=invalid_oauth_state`);
+    }
+    const stateHash = createHash('sha256').update(state).digest('hex');
+    const now = Math.floor(Date.now() / 1000);
+    const consumeState = db.transaction(() => {
+      const stateRecord = db.prepare(`
+        SELECT user_id FROM discord_oauth_states
+        WHERE state_hash = ? AND expires_at > ?
+      `).get(stateHash, now);
+      db.prepare('DELETE FROM discord_oauth_states WHERE state_hash = ?').run(stateHash);
+      return stateRecord?.user_id || null;
+    });
+    linkingUserId = consumeState();
+    if (!linkingUserId) {
+      return res.redirect(`${FRONTEND_BASE_URL}/login?error=invalid_oauth_state`);
+    }
   }
 
+  const redirectForLink = (status) => {
+    if (!linkingUserId) return `${FRONTEND_BASE_URL}/login?error=oauth_failed`;
+    const character = db.prepare('SELECT id FROM characters WHERE user_id = ?').get(linkingUserId);
+    const profilePath = character ? `/members/${encodeURIComponent(character.id)}` : '/';
+    return `${FRONTEND_BASE_URL}${profilePath}?discord=${encodeURIComponent(status)}`;
+  };
+
+  if (error) return res.redirect(redirectForLink(linkingUserId ? 'cancelled' : 'oauth_failed'));
   if (!code) {
-    return res.redirect(`${FRONTEND_URL}/login?error=no_code`);
+    return res.redirect(redirectForLink(linkingUserId ? 'failed' : 'no_code'));
   }
 
   try {
@@ -168,6 +222,40 @@ router.get('/callback', asyncHandler(async (req, res) => {
 
     const discordUser = await userResponse.json();
 
+    if (linkingUserId) {
+      const currentUser = db.prepare('SELECT discord_id FROM users WHERE id = ?').get(linkingUserId);
+      if (!currentUser) {
+        return res.redirect(redirectForLink('failed'));
+      }
+
+      if (currentUser.discord_id && currentUser.discord_id !== discordUser.id) {
+        return res.redirect(redirectForLink('already_connected'));
+      }
+
+      const discordOwner = db.prepare('SELECT id FROM users WHERE discord_id = ?').get(discordUser.id);
+      if (discordOwner && discordOwner.id !== linkingUserId) {
+        return res.redirect(redirectForLink('already_linked'));
+      }
+
+      db.prepare(`
+        UPDATE users SET
+          discord_id = ?,
+          discord_username = ?,
+          discriminator = ?,
+          avatar = ?,
+          updated_at = ?
+        WHERE id = ?
+      `).run(
+        discordUser.id,
+        discordUser.username,
+        discordUser.discriminator || '0',
+        discordUser.avatar,
+        Math.floor(Date.now() / 1000),
+        linkingUserId
+      );
+      return res.redirect(redirectForLink('linked'));
+    }
+
     // Check if user exists in database
     let user = db.prepare('SELECT * FROM users WHERE discord_id = ?').get(discordUser.id);
 
@@ -175,11 +263,12 @@ router.get('/callback', asyncHandler(async (req, res) => {
       // Create new user
       const userId = uuidv4();
       db.prepare(`
-        INSERT INTO users (id, discord_id, username, discriminator, avatar, email, access_token, refresh_token, token_expires_at, role, created_at, last_login_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'member', ?, ?)
+        INSERT INTO users (id, discord_id, discord_username, username, discriminator, avatar, email, access_token, refresh_token, token_expires_at, role, created_at, last_login_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'member', ?, ?)
       `).run(
         userId,
         discordUser.id,
+        discordUser.username,
         discordUser.username,
         discordUser.discriminator || '0',
         discordUser.avatar,
@@ -197,6 +286,7 @@ router.get('/callback', asyncHandler(async (req, res) => {
       db.prepare(`
         UPDATE users SET
           username = ?,
+          discord_username = ?,
           discriminator = ?,
           avatar = ?,
           email = ?,
@@ -207,6 +297,7 @@ router.get('/callback', asyncHandler(async (req, res) => {
           updated_at = ?
         WHERE id = ?
       `).run(
+        discordUser.username,
         discordUser.username,
         discordUser.discriminator || '0',
         discordUser.avatar,
@@ -224,10 +315,10 @@ router.get('/callback', asyncHandler(async (req, res) => {
     const jwtToken = generateToken({ userId: user.id, discordId: user.discord_id, role: user.role });
 
     // Redirect to frontend with token
-    res.redirect(`${FRONTEND_URL}/auth/callback?token=${jwtToken}`);
+    res.redirect(`${FRONTEND_BASE_URL}/auth/callback?token=${jwtToken}`);
   } catch (error) {
     console.error('Discord OAuth error:', error);
-    res.redirect(`${FRONTEND_URL}/login?error=oauth_failed`);
+    res.redirect(redirectForLink(linkingUserId ? 'failed' : 'oauth_failed'));
   }
 }));
 

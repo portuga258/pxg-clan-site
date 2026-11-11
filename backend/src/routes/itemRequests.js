@@ -72,7 +72,13 @@ router.get('/', asyncHandler(async (req, res) => {
 
   const requests = db.prepare(query).all(...params);
 
-  const countQuery = `SELECT COUNT(*) as total FROM item_requests ir ${whereClause}`;
+  const countQuery = `
+    SELECT COUNT(*) as total
+    FROM item_requests ir
+    JOIN characters c_requester ON ir.requester_id = c_requester.id
+    JOIN characters c_target ON ir.target_id = c_target.id
+    ${whereClause}
+  `;
   const total = db.prepare(countQuery).all(...params.slice(0, -2))[0].total;
 
   res.json({
@@ -84,6 +90,50 @@ router.get('/', asyncHandler(async (req, res) => {
       hasMore: parseInt(offset) + parseInt(limit) < total,
     },
   });
+}));
+
+router.get('/notifications/count', asyncHandler(async (req, res) => {
+  const character = db.prepare('SELECT id FROM characters WHERE user_id = ?').get(req.user.id);
+  if (!character) {
+    throw new AppError('Personagem não encontrado para esta conta', 404);
+  }
+
+  const count = db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM item_requests
+    WHERE (
+      request_scope = 'clan'
+      AND requester_id NOT IN (SELECT id FROM characters WHERE user_id = ?)
+      AND status IN ('open', 'collecting')
+    ) OR (
+      request_scope = 'member'
+      AND target_id IN (SELECT id FROM characters WHERE user_id = ?)
+      AND status IN ('open', 'collecting')
+    ) OR (
+      requester_id IN (SELECT id FROM characters WHERE user_id = ?)
+      AND status = 'ready'
+    )
+  `).get(req.user.id, req.user.id, req.user.id).count;
+
+  res.json({ count });
+}));
+
+router.get('/notifications/requests', asyncHandler(async (req, res) => {
+  const { limit = 100 } = req.query;
+  const parsedLimit = Number.parseInt(limit, 10);
+  if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 100) {
+    throw new AppError('Limite deve ser um número entre 1 e 100', 400);
+  }
+
+  const requests = db.prepare(`
+    SELECT id, created_at
+    FROM item_requests
+    ORDER BY created_at DESC, id DESC
+    LIMIT ?
+  `).all(parsedLimit);
+  const count = db.prepare('SELECT COUNT(*) AS count FROM item_requests').get().count;
+
+  res.json({ data: requests, count });
 }));
 
 /**
@@ -123,6 +173,7 @@ router.post('/', asyncHandler(async (req, res) => {
   const {
     requester_id,
     target_id,
+    request_scope = 'member',
     item_name,
     item_category,
     quantity,
@@ -134,16 +185,30 @@ router.post('/', asyncHandler(async (req, res) => {
   } = req.body;
 
   // Validate required fields
-  if (!requester_id || !target_id || !item_name || !item_category || !quantity) {
-    throw new AppError('Campos obrigatórios: requester_id, target_id, item_name, item_category, quantity', 400);
+  if (
+    typeof requester_id !== 'string'
+    || !requester_id
+    || typeof item_name !== 'string'
+    || !item_name.trim()
+    || typeof item_category !== 'string'
+    || quantity === undefined
+  ) {
+    throw new AppError('Campos obrigatórios: requester_id, item_name, item_category, quantity', 400);
+  }
+
+  if (!['member', 'clan'].includes(request_scope)) {
+    throw new AppError('Destino do pedido inválido', 400);
+  }
+  if (request_scope === 'member' && (typeof target_id !== 'string' || !target_id)) {
+    throw new AppError('Escolha o jogador que receberá o pedido', 400);
   }
 
   if (!VALID_CATEGORIES.includes(item_category)) {
     throw new AppError('Categoria inválida', 400);
   }
 
-  if (quantity < 1) {
-    throw new AppError('Quantidade deve ser maior que zero', 400);
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100000) {
+    throw new AppError('Quantidade deve ser um número inteiro entre 1 e 100000', 400);
   }
 
   // Check if requester exists
@@ -153,18 +218,21 @@ router.post('/', asyncHandler(async (req, res) => {
   }
 
   // Check if target exists
-  const target = db.prepare('SELECT id, user_id FROM characters WHERE id = ?').get(target_id);
+  const resolvedTargetId = request_scope === 'clan' ? requester_id : target_id;
+  const target = db.prepare('SELECT id, user_id FROM characters WHERE id = ?').get(resolvedTargetId);
   if (!target) {
-    throw new AppError('Alvo (coletor) não encontrado', 404);
+    throw new AppError('Jogador escolhido não encontrado', 404);
   }
 
   // Permission check: users can only create requests for themselves
   const isLeaderOfficer = req.user.role === 'leader' || req.user.role === 'officer';
   const isRequester = requester.user_id === req.user.id;
-  const isTarget = target.user_id === req.user.id;
 
   if (!isLeaderOfficer && !isRequester) {
     throw new AppError('Você só pode criar pedidos para si mesmo', 403);
+  }
+  if (request_scope === 'member' && requester_id === resolvedTargetId) {
+    throw new AppError('Escolha outro jogador para receber o pedido', 400);
   }
 
   const id = uuidv4();
@@ -172,12 +240,12 @@ router.post('/', asyncHandler(async (req, res) => {
 
   db.prepare(`
     INSERT INTO item_requests (
-      id, requester_id, target_id, item_name, item_category, quantity,
+      id, requester_id, target_id, request_scope, item_name, item_category, quantity,
       collected_quantity, purpose, hunt_source, profession_required,
       min_profession_level, status, notes, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'open', ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'open', ?, ?, ?)
   `).run(
-    id, requester_id, target_id, item_name, item_category, quantity,
+    id, requester_id, resolvedTargetId, request_scope, item_name.trim(), item_category, quantity,
     purpose || null, hunt_source || null, profession_required || null,
     min_profession_level || 0, notes || null, now, now
   );
@@ -189,6 +257,64 @@ router.post('/', asyncHandler(async (req, res) => {
   res.status(201).json({
     message: 'Pedido criado com sucesso',
     request,
+  });
+}));
+
+router.post('/:id/contributions', asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { quantity } = req.body;
+  if (!Number.isInteger(quantity) || quantity < 1) {
+    throw new AppError('Informe uma quantidade inteira maior que zero', 400);
+  }
+
+  const contributor = db.prepare('SELECT id FROM characters WHERE user_id = ?').get(req.user.id);
+  if (!contributor) {
+    throw new AppError('Personagem não encontrado para esta conta', 404);
+  }
+
+  const contribute = db.transaction(() => {
+    const request = db.prepare('SELECT * FROM item_requests WHERE id = ?').get(id);
+    if (!request) {
+      throw new AppError('Pedido não encontrado', 404);
+    }
+
+    if (!['open', 'collecting'].includes(request.status)) {
+      throw new AppError('Este pedido não está mais recebendo itens', 400);
+    }
+    if (request.requester_id === contributor.id) {
+      throw new AppError('Você não pode contribuir para o próprio pedido', 403);
+    }
+    if (request.request_scope === 'member' && request.target_id !== contributor.id) {
+      throw new AppError('Este pedido foi direcionado a outro jogador', 403);
+    }
+
+    const remaining = request.quantity - request.collected_quantity;
+    if (quantity > remaining) {
+      throw new AppError(`Você pode contribuir com no máximo ${remaining} unidade(s)`, 400);
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    db.prepare(`
+      INSERT INTO item_request_contributions (id, request_id, contributor_id, quantity, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(uuidv4(), id, contributor.id, quantity, now);
+
+    const collectedQuantity = request.collected_quantity + quantity;
+    const status = collectedQuantity === request.quantity ? 'ready' : 'collecting';
+    db.prepare(`
+      UPDATE item_requests
+      SET collected_quantity = ?, status = ?, updated_at = ?
+      WHERE id = ?
+    `).run(collectedQuantity, status, now, id);
+
+    return db.prepare('SELECT * FROM item_requests WHERE id = ?').get(id);
+  });
+
+  const updatedRequest = contribute();
+  res.json({
+    message: 'Quantidade adicionada ao pedido',
+    request: updatedRequest,
+    remaining: updatedRequest.quantity - updatedRequest.collected_quantity,
   });
 }));
 
@@ -215,7 +341,7 @@ router.put('/:id/status', asyncHandler(async (req, res) => {
 
   const isLeaderOfficer = req.user.role === 'leader' || req.user.role === 'officer';
   const isRequester = requesterChar?.user_id === req.user.id;
-  const isTarget = targetChar?.user_id === req.user.id;
+  const isTarget = request.request_scope === 'member' && targetChar?.user_id === req.user.id;
 
   // Define valid transitions
   const validTransitions = {
@@ -242,6 +368,9 @@ router.put('/:id/status', asyncHandler(async (req, res) => {
   if (status === 'completed' && !isRequester && !isLeaderOfficer) {
     throw new AppError('Apenas o solicitante pode confirmar a entrega', 403);
   }
+  if (status === 'ready' && request.collected_quantity < request.quantity) {
+    throw new AppError('O pedido só fica pronto quando toda a quantidade for adicionada', 400);
+  }
 
   if (status === 'cancelled' && !isRequester && !isTarget && !isLeaderOfficer) {
     throw new AppError('Sem permissão para cancelar', 403);
@@ -251,11 +380,7 @@ router.put('/:id/status', asyncHandler(async (req, res) => {
   const params = [status, Math.floor(Date.now() / 1000)];
 
   if (collected_quantity !== undefined) {
-    if (collected_quantity < 0 || collected_quantity > request.quantity) {
-      throw new AppError('Quantidade coletada inválida', 400);
-    }
-    updates.push('collected_quantity = ?');
-    params.push(collected_quantity);
+    throw new AppError('Adicione quantidades pela ação de contribuição do pedido', 400);
   }
 
   if (notes !== undefined) {
