@@ -94,8 +94,9 @@ Site completo para gerenciamento do clan **Lá Eles** do PokéXGames, com sistem
 ## 🚀 Como Executar
 
 ### Pré-requisitos
-- Node.js 18+
+- Node.js 20 LTS ou 22 LTS (evite Node 26/experimental)
 - npm 9+
+- No Windows, instalar Visual Studio 2022 Build Tools com workload "Desktop development with C++" para compilar o pacote `better-sqlite3`
 
 ### Backend
 ```bash
