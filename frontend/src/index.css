@@ -1,0 +1,318 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-pxg-border-subtle;
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply bg-pxg-bg-primary text-pxg-text-primary font-body antialiased;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(42, 8, 69, 0.15) 0%, transparent 50%),
+      radial-gradient(ellipse 60% 40% at 100% 100%, rgba(0, 212, 255, 0.05) 0%, transparent 50%),
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
+    min-height: 100vh;
+  }
+
+  /* Scrollbar personalizada */
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-pxg-bg-primary;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-pxg-accent-purple rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-pxg-accent-purpleLight;
+  }
+
+  /* Selection */
+  ::selection {
+    @apply bg-pxg-accent-neonGreen/30 text-pxg-text-primary;
+  }
+
+  /* Focus visible para acessibilidade */
+  :focus-visible {
+    @apply outline-none ring-2 ring-pxg-accent-neonGreen ring-offset-2 ring-offset-pxg-bg-primary;
+  }
+
+  /* Reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Glassmorphism Card Base */
+  .glass-card {
+    @apply relative rounded-glass bg-pxg-bg-card/80 backdrop-blur-glass border border-pxg-border-subtle/50 shadow-glass;
+    background: linear-gradient(135deg, rgba(17, 19, 26, 0.9) 0%, rgba(26, 29, 42, 0.7) 100%);
+  }
+
+  .glass-card-hover {
+    @apply transition-all duration-300 hover:border-pxg-accent-purple/50 hover:shadow-glass-lg hover:bg-pxg-bg-hover/90;
+  }
+
+  .glass-card-neon {
+    @apply glass-card border-pxg-accent-neonGreen/30 shadow-neon-green;
+  }
+
+  /* Glass Panel - mais leve que card */
+  .glass-panel {
+    @apply rounded-glass bg-pxg-bg-tertiary/60 backdrop-blur-glass border border-pxg-border-subtle/30 shadow-glass;
+  }
+
+  /* Botões */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg font-body font-medium text-body-sm transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-pxg-bg-primary disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-pxg-accent-neonGreen text-pxg-bg-primary hover:bg-pxg-accent-neonGreen/90 focus-visible:ring-pxg-accent-neonGreen shadow-neon-green;
+  }
+
+  .btn-secondary {
+    @apply btn bg-pxg-bg-tertiary text-pxg-text-primary border border-pxg-border-accent hover:bg-pxg-bg-hover hover:border-pxg-accent-purpleLight focus-visible:ring-pxg-accent-purple;
+  }
+
+  .btn-danger {
+    @apply btn bg-pxg-accent-neonRed text-pxg-bg-primary hover:bg-pxg-accent-neonRed/90 focus-visible:ring-pxg-accent-neonRed shadow-neon-red;
+  }
+
+  .btn-ghost {
+    @apply btn bg-transparent text-pxg-text-secondary hover:text-pxg-text-primary hover:bg-pxg-bg-tertiary/50 focus-visible:ring-pxg-border-accent;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-caption gap-1.5;
+  }
+
+  .btn-lg {
+    @apply px-8 py-3.5 text-body-lg gap-2.5;
+  }
+
+  /* Inputs */
+  .input {
+    @apply w-full px-4 py-2.5 rounded-lg bg-pxg-bg-primary border border-pxg-border-subtle text-pxg-text-primary placeholder-pxg-text-muted transition-all duration-200 focus:outline-none focus:border-pxg-accent-neonGreen focus:ring-2 focus:ring-pxg-accent-neonGreen/20;
+  }
+
+  .input-error {
+    @apply border-pxg-accent-neonRed focus:border-pxg-accent-neonRed focus:ring-pxg-accent-neonRed/20;
+  }
+
+  .label {
+    @apply block text-body-sm font-medium text-pxg-text-secondary mb-1.5;
+  }
+
+  /* Badges */
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-caption font-medium;
+  }
+
+  .badge-leader {
+    @apply badge bg-pxg-accent-gold/20 text-pxg-accent-gold border border-pxg-accent-gold/30;
+  }
+
+  .badge-officer {
+    @apply badge bg-pxg-accent-cyan/20 text-pxg-accent-cyan border border-pxg-accent-cyan/30;
+  }
+
+  .badge-master-crafter {
+    @apply badge bg-pxg-accent-neonGreen/20 text-pxg-accent-neonGreen border border-pxg-accent-neonGreen/30;
+  }
+
+  .badge-status {
+    @apply badge px-2 py-0.5;
+  }
+
+  .badge-open {
+    @apply badge-status bg-pxg-accent-cyan/20 text-pxg-accent-cyan border border-pxg-accent-cyan/30;
+  }
+
+  .badge-collecting {
+    @apply badge-status bg-pxg-accent-gold/20 text-pxg-accent-gold border border-pxg-accent-gold/30;
+  }
+
+  .badge-ready {
+    @apply badge-status bg-pxg-accent-neonGreen/20 text-pxg-accent-neonGreen border border-pxg-accent-neonGreen/30;
+  }
+
+  .badge-completed {
+    @apply badge-status bg-pxg-text-muted/20 text-pxg-text-muted border border-pxg-border-subtle;
+  }
+
+  .badge-available {
+    @apply badge-status bg-pxg-accent-neonGreen/20 text-pxg-accent-neonGreen border border-pxg-accent-neonGreen/30;
+  }
+
+  .badge-borrowed {
+    @apply badge-status bg-pxg-accent-neonRed/20 text-pxg-accent-neonRed border border-pxg-accent-neonRed/30;
+  }
+
+  /* Tabs */
+  .tab {
+    @apply px-4 py-2.5 text-body-sm font-medium text-pxg-text-secondary hover:text-pxg-text-primary transition-colors duration-200 relative;
+  }
+
+  .tab-active {
+    @apply text-pxg-accent-neonGreen;
+  }
+
+  .tab-active::after {
+    @apply content-[''] absolute bottom-0 left-1/2 -translate-x-1/2 w-3/4 h-0.5 bg-pxg-accent-neonGreen rounded-full animate-scale-in;
+  }
+
+  /* Table */
+  .table-container {
+    @apply overflow-x-auto rounded-glass border border-pxg-border-subtle/30;
+  }
+
+  .table {
+    @apply w-full text-left;
+  }
+
+  .table th {
+    @apply px-4 py-3 text-caption font-semibold text-pxg-text-muted uppercase tracking-wider bg-pxg-bg-tertiary/50 border-b border-pxg-border-subtle/30;
+  }
+
+  .table td {
+    @apply px-4 py-3 text-body-sm border-b border-pxg-border-subtle/20 transition-colors;
+  }
+
+  .table tbody tr {
+    @apply hover:bg-pxg-bg-hover/50;
+  }
+
+  .table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+
+  /* Modal/Overlay */
+  .modal-overlay {
+    @apply fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in;
+  }
+
+  .modal-content {
+    @apply glass-card max-w-lg w-full max-h-[90vh] overflow-y-auto animate-scale-in;
+  }
+
+  .modal-header {
+    @apply flex items-center justify-between p-4 border-b border-pxg-border-subtle/30;
+  }
+
+  .modal-body {
+    @apply p-4 space-y-4;
+  }
+
+  .modal-footer {
+    @apply flex items-center justify-end gap-3 p-4 border-t border-pxg-border-subtle/30;
+  }
+
+  /* Tooltip */
+  .tooltip {
+    @apply absolute z-50 px-3 py-2 text-caption bg-pxg-bg-primary border border-pxg-border-accent rounded-lg shadow-glass-lg whitespace-nowrap animate-fade-in;
+  }
+
+  /* Progress Bar */
+  .progress-bar {
+    @apply h-2 bg-pxg-bg-primary rounded-full overflow-hidden;
+  }
+
+  .progress-fill {
+    @apply h-full rounded-full transition-all duration-500 ease-out;
+  }
+
+  /* Avatar */
+  .avatar {
+    @apply relative inline-block shrink-0 overflow-hidden rounded-full bg-pxg-bg-tertiary border border-pxg-border-subtle/30;
+  }
+
+  .avatar-xs { @apply w-6 h-6; }
+  .avatar-sm { @apply w-8 h-8; }
+  .avatar-md { @apply w-10 h-10; }
+  .avatar-lg { @apply w-16 h-16; }
+  .avatar-xl { @apply w-24 h-24; }
+
+  /* Clan Type Badges */
+  .clan-badge {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-caption font-medium border;
+  }
+
+  .clan-malefic { @apply clan-badge bg-purple-900/30 text-purple-300 border-purple-700/50; }
+  .clan-naturia { @apply clan-badge bg-green-900/30 text-green-300 border-green-700/50; }
+  .clan-wingeon { @apply clan-badge bg-sky-900/30 text-sky-300 border-sky-700/50; }
+  .clan-seavell { @apply clan-badge bg-blue-900/30 text-blue-300 border-blue-700/50; }
+  .clan-volcanic { @apply clan-badge bg-red-900/30 text-red-300 border-red-700/50; }
+  .clan-orebound { @apply clan-badge bg-amber-900/30 text-amber-300 border-amber-700/50; }
+  .clan-psycraft { @apply clan-badge bg-pink-900/30 text-pink-300 border-pink-700/50; }
+  .clan-gardsen { @apply clan-badge bg-emerald-900/30 text-emerald-300 border-emerald-700/50; }
+
+  /* Rank Tier Badges */
+  .rank-tier {
+    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded text-caption font-semibold;
+  }
+
+  .rank-s { @apply rank-tier bg-gradient-to-r from-pxg-accent-gold to-yellow-400 text-pxg-bg-primary shadow-neon-green; }
+  .rank-a { @apply rank-tier bg-gradient-to-r from-pxg-accent-cyan to-sky-400 text-pxg-bg-primary; }
+  .rank-b { @apply rank-tier bg-gradient-to-r from-pxg-accent-neonGreen to-green-400 text-pxg-bg-primary; }
+  .rank-c { @apply rank-tier bg-gradient-to-r from-pxg-accent-purple to-purple-400 text-pxg-bg-primary; }
+  .rank-d { @apply rank-tier bg-gradient-to-r from-gray-500 to-gray-400 text-pxg-bg-primary; }
+  .rank-e { @apply rank-tier bg-gradient-to-r from-gray-600 to-gray-500 text-pxg-text-secondary; }
+
+  /* Animations utilities */
+  .animate-delay-100 { animation-delay: 100ms; }
+  .animate-delay-200 { animation-delay: 200ms; }
+  .animate-delay-300 { animation-delay: 300ms; }
+  .animate-delay-400 { animation-delay: 400ms; }
+  .animate-delay-500 { animation-delay: 500ms; }
+
+  /* Layout */
+  .container-pxg {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  .section {
+    @apply py-12 sm:py-16 lg:py-20;
+  }
+
+  .section-sm {
+    @apply py-8 sm:py-10 lg:py-12;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .glass-gradient {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.01) 100%);
+  }
+
+  .neon-border {
+    @apply relative;
+  }
+
+  .neon-border::before {
+    @apply content-[''] absolute inset-0 rounded-[inherit] bg-gradient-to-r from-pxg-accent-neonGreen to-pxg-accent-cyan opacity-0 transition-opacity duration-300 -z-10 blur-[10px];
+  }
+
+  .neon-border:hover::before {
+    @apply opacity-100;
+  }
+}
