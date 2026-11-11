@@ -237,6 +237,18 @@ npm run build
 
 O banco SQLite é criado/atualizado pelo backend no início e armazena as contas (senha em hash bcrypt), perfis, profissões e pedidos. Ele precisa do volume persistente do Railway para manter esses dados entre deploys. Após publicar as alterações, verifique `/api/health` e faça um cadastro de teste.
 
+Se frontend e backend forem serviços Railway separados, configure o serviço do frontend com diretório raiz `frontend`, build `npm ci --include=dev && npm run build`, start `npm start` e health check `/`. Defina `VITE_API_URL` no serviço frontend com a URL pública do backend (sem `/api`); essa variável precisa estar disponível no build. No backend, `FRONTEND_URL` deve ser a origem pública do frontend, sem barra final. Para os domínios atuais:
+
+```env
+# Serviço frontend
+VITE_API_URL=https://pxg-clan-site-production.up.railway.app
+
+# Serviço backend
+FRONTEND_URL=https://motivated-consideration-production-cc8dc721.up.railway.app
+```
+
+Após alterar essas variáveis, faça redeploy dos dois serviços.
+
 O catálogo sincroniza imagens diretamente das páginas dos itens na Wiki, com uma imagem substituta para cada página sem imagem disponível. Para atualizar nomes e imagens, execute `npm --prefix backend run catalog:sync` e publique novamente o frontend.
 
 ## 📝 Licença

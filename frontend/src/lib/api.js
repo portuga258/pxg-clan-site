@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
 
 export async function apiRequest(path, { token, ...options } = {}) {
   const headers = new Headers(options.headers || {});
@@ -9,10 +9,19 @@ export async function apiRequest(path, { token, ...options } = {}) {
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const response = await fetch(`${API_BASE_URL}/api${path}`, {
-    ...options,
-    headers,
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api${path}`, {
+      ...options,
+      headers,
+    });
+  } catch (error) {
+    if (error.name === 'AbortError') throw error;
+    const apiOrigin = API_BASE_URL || window.location.origin;
+    throw new Error(
+      `Não foi possível conectar à API em ${apiOrigin}. Confira VITE_API_URL no frontend e FRONTEND_URL/CORS no backend.`
+    );
+  }
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
