@@ -1,0 +1,1 @@
+import { AlertTriangle, OutroIcone } from 'lucide-react';
