@@ -22,6 +22,17 @@ const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const allowedFrontendOrigins = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map((origin) => origin.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
+if (allowedFrontendOrigins.length === 0 && process.env.NODE_ENV !== 'production') {
+  allowedFrontendOrigins.push('http://localhost:3000');
+}
+if (allowedFrontendOrigins.length === 0) {
+  console.warn('FRONTEND_URL não configurada; chamadas cross-origin do frontend serão bloqueadas pelo CORS.');
+}
 
 // Middleware
 app.use(helmet({
@@ -29,7 +40,9 @@ app.use(helmet({
   contentSecurityPolicy: false,
 }));
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    callback(null, !origin || allowedFrontendOrigins.includes(origin));
+  },
   credentials: true,
 }));
 app.use(morgan('dev'));
