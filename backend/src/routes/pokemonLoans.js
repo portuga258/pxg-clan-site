@@ -1,16 +1,8 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import Database from 'better-sqlite3';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { requireRole } from '../middleware/auth.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const dbPath = join(__dirname, '../../data/pxg-clan.db');
-const db = new Database(dbPath);
+import { db } from '../utils/database.js';
 
 const VALID_STATUSES = ['available', 'borrowed', 'pending'];
 
@@ -188,7 +180,7 @@ router.post('/', asyncHandler(async (req, res) => {
  */
 router.post('/:id/request', asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { borrower_id, expected_days = 7, notes } = req.body;
+  const { expected_days = 7 } = req.body;
 
   const loan = db.prepare('SELECT * FROM pokemon_loans WHERE id = ?').get(id);
   if (!loan) {
@@ -199,16 +191,11 @@ router.post('/:id/request', asyncHandler(async (req, res) => {
     throw new AppError('Pokémon não está disponível para empréstimo', 400);
   }
 
-  // Determine borrower
-  let targetBorrowerId = borrower_id;
-  if (!targetBorrowerId) {
-    // Use requester's character
-    const userChar = db.prepare('SELECT id FROM characters WHERE user_id = ?').get(req.user.id);
-    if (!userChar) {
-      throw new AppError('Você não tem personagem vinculado', 400);
-    }
-    targetBorrowerId = userChar.id;
+  const userChar = db.prepare('SELECT id FROM characters WHERE user_id = ?').get(req.user.id);
+  if (!userChar) {
+    throw new AppError('Você não tem personagem vinculado', 400);
   }
+  const targetBorrowerId = userChar.id;
 
   const borrower = db.prepare('SELECT id FROM characters WHERE id = ?').get(targetBorrowerId);
   if (!borrower) {

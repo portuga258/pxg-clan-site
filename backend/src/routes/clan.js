@@ -1,15 +1,7 @@
 import express from 'express';
-import Database from 'better-sqlite3';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { requireRole } from '../middleware/auth.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const dbPath = join(__dirname, '../../data/pxg-clan.db');
-const db = new Database(dbPath);
+import { db } from '../utils/database.js';
 
 const router = express.Router();
 
@@ -117,7 +109,7 @@ router.get('/rankings/profession/:profession', asyncHandler(async (req, res) => 
   const { profession } = req.params;
   const { limit = 10 } = req.query;
 
-  const VALID_PROFESSIONS = ['stylist', 'adventurer', 'engineer', 'farmer', 'alchemist', 'breeder', 'explorer'];
+  const VALID_PROFESSIONS = ['engineer', 'professor', 'stylist', 'adventurer'];
   if (!VALID_PROFESSIONS.includes(profession)) {
     throw new AppError('Profissão inválida', 400);
   }

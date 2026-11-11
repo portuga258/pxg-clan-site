@@ -1,15 +1,12 @@
 import jwt from 'jsonwebtoken';
-import Database from 'better-sqlite3';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { db } from '../utils/database.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const configuredSecret = process.env.JWT_SECRET;
+if (process.env.NODE_ENV === 'production' && (!configuredSecret || configuredSecret.length < 32)) {
+  throw new Error('JWT_SECRET precisa ter pelo menos 32 caracteres em produção');
+}
 
-const dbPath = join(__dirname, '../../data/pxg-clan.db');
-const db = new Database(dbPath);
-
-const JWT_SECRET = process.env.JWT_SECRET || 'pxg-clan-secret-key-change-in-production';
+const JWT_SECRET = configuredSecret || 'pxg-clan-secret-key-change-in-production';
 const JWT_EXPIRES_IN = '7d';
 
 export function generateToken(payload) {

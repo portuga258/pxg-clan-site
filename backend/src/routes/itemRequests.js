@@ -1,16 +1,8 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import Database from 'better-sqlite3';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { requireRole } from '../middleware/auth.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const dbPath = join(__dirname, '../../data/pxg-clan.db');
-const db = new Database(dbPath);
+import { db } from '../utils/database.js';
 
 const VALID_STATUSES = ['open', 'collecting', 'ready', 'completed', 'cancelled'];
 const VALID_CATEGORIES = ['hunt-loot', 'evolution-stone', 'boss-loot', 'consumable', 'lab-component', 'quest-item', 'craft-material'];

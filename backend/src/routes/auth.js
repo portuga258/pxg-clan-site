@@ -1,16 +1,9 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import Database from 'better-sqlite3';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import bcrypt from 'bcryptjs';
 import { generateToken, verifyToken, JWT_SECRET } from '../middleware/auth.js';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const dbPath = join(__dirname, '../../data/pxg-clan.db');
-const db = new Database(dbPath);
+import { db } from '../utils/database.js';
 
 const router = express.Router();
 
@@ -19,6 +12,100 @@ const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
 const DISCORD_REDIRECT_URI = process.env.DISCORD_REDIRECT_URI || 'http://localhost:3000/auth/callback';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const STARTER_PROFESSIONS = ['engineer', 'professor', 'stylist', 'adventurer'];
+
+function getAccount(userId) {
+  const user = db.prepare(`
+    SELECT id, discord_id, username, discriminator, avatar, email, role, created_at, last_login_at
+    FROM users WHERE id = ?
+  `).get(userId);
+
+  if (!user) return null;
+
+  const character = db.prepare(`
+    SELECT id, name, level, vocation, clan_type, activity_status
+    FROM characters WHERE user_id = ?
+  `).get(userId);
+
+  return { ...user, character };
+}
+
+function createAuthResponse(res, user, status = 200) {
+  const accessToken = generateToken({ userId: user.id, role: user.role });
+  res.status(status).json({
+    access_token: accessToken,
+    token_type: 'Bearer',
+    expires_in: 7 * 24 * 60 * 60,
+    user: getAccount(user.id),
+  });
+}
+
+router.post('/register', asyncHandler(async (req, res) => {
+  const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const password = typeof req.body.password === 'string' ? req.body.password : '';
+  const characterName = typeof req.body.character_name === 'string' ? req.body.character_name.trim() : '';
+  const level = Number(req.body.level ?? 1);
+  const vocation = typeof req.body.vocation === 'string' ? req.body.vocation.trim() : '';
+  const clanType = typeof req.body.clan_type === 'string' ? req.body.clan_type : '';
+  const validClanTypes = ['malefic', 'naturia', 'wingeon', 'seavell', 'volcanic', 'orebound', 'psycraft', 'gardsen'];
+  const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+  if (!validEmail || password.length < 10 || characterName.length < 2 || characterName.length > 32) {
+    throw new AppError('Informe e-mail válido, senha com no mínimo 10 caracteres e personagem de 2 a 32 caracteres', 400);
+  }
+  if (!Number.isInteger(level) || level < 1 || level > 10000) {
+    throw new AppError('Level deve ser um número entre 1 e 10000', 400);
+  }
+  if (clanType && !validClanTypes.includes(clanType)) {
+    throw new AppError('Clã inválido', 400);
+  }
+
+  if (db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(email)) {
+    throw new AppError('Não foi possível criar a conta com esses dados', 409);
+  }
+  if (db.prepare('SELECT id FROM characters WHERE name = ? COLLATE NOCASE').get(characterName)) {
+    throw new AppError('Não foi possível criar a conta com esses dados', 409);
+  }
+
+  const id = uuidv4();
+  const characterId = uuidv4();
+  const now = Math.floor(Date.now() / 1000);
+  const passwordHash = await bcrypt.hash(password, 12);
+  const createAccount = db.transaction(() => {
+    db.prepare(`
+      INSERT INTO users (id, username, email, password_hash, role, created_at, updated_at, last_login_at)
+      VALUES (?, ?, ?, ?, 'member', ?, ?, ?)
+    `).run(id, characterName, email, passwordHash, now, now, now);
+    db.prepare(`
+      INSERT INTO characters (id, user_id, name, level, vocation, clan_type, activity_status, join_date, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'offline', ?, ?, ?)
+    `).run(characterId, id, characterName, level, vocation || null, clanType || null, now, now, now);
+    const insertProfession = db.prepare(`
+      INSERT INTO professions (id, character_id, name, level, tier, rank, progress, experience, created_at, updated_at)
+      VALUES (?, ?, ?, 0, 'E', 'Novato', 0, 0, ?, ?)
+    `);
+    for (const profession of STARTER_PROFESSIONS) {
+      insertProfession.run(uuidv4(), characterId, profession, now, now);
+    }
+  });
+  createAccount();
+
+  createAuthResponse(res, { id, role: 'member' }, 201);
+}));
+
+router.post('/login', asyncHandler(async (req, res) => {
+  const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const password = typeof req.body.password === 'string' ? req.body.password : '';
+  const user = db.prepare('SELECT id, password_hash, role FROM users WHERE email = ? COLLATE NOCASE').get(email);
+
+  if (!user?.password_hash || !(await bcrypt.compare(password, user.password_hash))) {
+    throw new AppError('E-mail ou senha inválidos', 401);
+  }
+
+  db.prepare('UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?')
+    .run(Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000), user.id);
+  createAuthResponse(res, user);
+}));
 
 /**
  * GET /api/auth/discord
@@ -237,16 +324,13 @@ router.get('/me', asyncHandler(async (req, res) => {
     throw new AppError('Token inválido', 401);
   }
 
-  const user = db.prepare('SELECT id, discord_id, username, discriminator, avatar, email, role, created_at, last_login_at FROM users WHERE id = ?').get(decoded.userId);
+  const user = getAccount(decoded.userId);
 
   if (!user) {
     throw new AppError('Usuário não encontrado', 404);
   }
 
-  // Get associated character
-  const character = db.prepare('SELECT id, name, level, vocation, clan_type, activity_status FROM characters WHERE user_id = ?').get(user.id);
-
-  res.json({ user: { ...user, character } });
+  res.json({ user });
 }));
 
 /**

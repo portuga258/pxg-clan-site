@@ -15,6 +15,7 @@ Site completo para gerenciamento do clan **Lá Eles** do PokéXGames, com sistem
 
 ### 👥 Fichas de Personagem (Dossiê)
 - Perfil completo: nome, level, vocação, clan type, horário de pico
+- O próprio jogador pode atualizar seus dados e os níveis/tiers das quatro profissões
 - **4 Profissões Oficiais do PXG** (dados da Wiki oficial):
   - ⚙️ **Engenheiro** - Minérios, Pokébolas, Crypto Diamond, Tech Data | Especializações: Hacker/Mechanic
   - 📚 **Professor** - Philosopher Stone, Estudantes, Dungeons Acadêmico
@@ -31,25 +32,26 @@ Site completo para gerenciamento do clan **Lá Eles** do PokéXGames, com sistem
 - Aprovação/devolução controlada
 
 ### 🛒 Requisição de Itens (Loot & Supply Pipeline)
+- Cada solicitação é gravada no SQLite com solicitante, destinatário, item, quantidade e status
 - Catálogo de pedidos com matching por profissão/hunt
 - Status: Aberto → Em Coleta → Pronto p/ Entrega → Concluído
 - Transições de status controladas por permissão (solicitante, coletor, leader/officer)
 - Modal de novo pedido com seleção de coletor, categoria, profissão necessária
 - Progress bar de coleta (quantidade coletada / total)
 
-### 🔐 Autenticação (Backend Ready)
-- Discord OAuth2 configurado
-- Roles: Leader, Officer, Member
-- JWT tokens com refresh
-- Vinculação de personagem in-game
+### 🔐 Contas
+- Cadastro e login com e-mail e senha
+- Senhas protegidas com hash bcrypt
+- Perfil inicial de personagem PXG (não verificado automaticamente no jogo)
+- Discord OAuth2 disponível como integração opcional
 
 ## 🛠 Tech Stack
 
 | Camada | Tecnologia |
 |--------|------------|
 | **Frontend** | React 18 + Vite 7 + Tailwind CSS 3 |
-| **Backend** | Node.js 18+ + Express 4 + SQLite (better-sqlite3) |
-| **Auth** | Discord OAuth2 + JWT |
+| **Backend** | Node.js 22 + Express 4 + SQLite (better-sqlite3) |
+| **Auth** | E-mail/senha + JWT (Discord OAuth2 opcional) |
 | **UI** | Design System customizado (Dark Glassmorphism) |
 | **Icons** | SVGs inline (zero dependências externas) |
 | **Charts** | Progress bars customizados |
@@ -102,8 +104,7 @@ Site completo para gerenciamento do clan **Lá Eles** do PokéXGames, com sistem
 ```bash
 cd backend
 npm install
-npm run db:init      # Cria tabelas SQLite
-npm run db:seed      # Popula com dados de exemplo
+npm run db:init      # Cria/atualiza tabelas SQLite
 npm run dev          # Roda em http://localhost:3001
 ```
 
@@ -121,12 +122,16 @@ PORT=3001
 NODE_ENV=development
 FRONTEND_URL=http://localhost:3000
 JWT_SECRET=your-super-secret-key-min-32-chars
+# As três variáveis DISCORD_* são opcionais
 DISCORD_CLIENT_ID=your_discord_app_id
 DISCORD_CLIENT_SECRET=your_discord_secret
 DISCORD_REDIRECT_URI=http://localhost:3000/auth/callback
 DATABASE_PATH=./data/pxg-clan.db
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 ```
+
+O Vite encaminha `/api` ao backend local durante o desenvolvimento. Em produção, o backend serve o build do frontend e as rotas da API na mesma origem.
+
+Para exibir o convite do Discord, configure `VITE_DISCORD_URL` em `frontend/.env` antes de gerar o build (veja `frontend/.env.example`).
 
 ## 📁 Estrutura do Projeto
 
@@ -213,12 +218,18 @@ npm run build
 # Deploy pasta dist/
 ```
 
-### Backend (Railway/Render/Fly.io)
+### Railway (frontend e backend no mesmo serviço)
 ```bash
-# Configurar variáveis de ambiente
-# Build: npm install
-# Start: npm start
+# railway.json define os comandos de build, start e health check.
+# Configure JWT_SECRET (pelo menos 32 caracteres) e NODE_ENV=production.
+# Adicione um volume persistente montado em /data e configure:
+# DATABASE_PATH=/data/pxg-clan.db
+# Opcional: VITE_DISCORD_URL=https://discord.gg/seu-convite
 ```
+
+O banco SQLite é criado/atualizado pelo backend no início e armazena as contas (senha em hash bcrypt), perfis, profissões e pedidos. Ele precisa do volume persistente do Railway para manter esses dados entre deploys. Após publicar as alterações, verifique `/api/health` e faça um cadastro de teste.
+
+O catálogo sincroniza imagens diretamente das páginas dos itens na Wiki, com uma imagem substituta para cada página sem imagem disponível. Para atualizar nomes e imagens, execute `npm --prefix backend run catalog:sync` e publique novamente o frontend.
 
 ## 📝 Licença
 
@@ -226,6 +237,6 @@ Projeto não-oficial, feito por fãs para fãs do PokéXGames. Todos os direitos
 
 ---
 
-**Clan:** Lá Eles | **Tag:** LAELES | **Discord:** [discord.gg/pxg-clan](https://discord.gg/pxg-clan)
+**Clan:** Lá Eles | **Tag:** LAELES
 
 *Se marcar bobeira na hunt... Lá Eles!* 👻

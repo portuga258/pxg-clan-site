@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { cn } from '../lib/utils';
 import { formatDate } from '../lib/utils';
+import { apiRequest, toMember } from '../lib/api';
+import { useAuth } from '../lib/AuthContext';
 import {
   ChevronLeft,
   User,
@@ -12,35 +14,82 @@ import {
   Sparkles,
   Shield,
   Crown,
-  Wheat,
   MessageSquare,
-  Send,
   Package,
   ShoppingCart,
   Calendar,
 } from '../lib/icons';
-import { members, getMemberById, professionOrder, getClanTypeName, getProfessionName } from '../data/mockData';
+import { professionInfo, professionOrder } from '../data/mockData';
 import {
   Card,
   CardHeader,
   CardTitle,
   CardDescription,
   CardContent,
-  CardFooter,
   Badge,
   ClanBadge,
-  RankTierBadge,
   Avatar,
   Button,
-  Progress,
+  SkillProgress,
   Section,
   Grid,
   GlassPanel,
+  Input,
+  Modal,
+  Select,
+  Textarea,
 } from '../components/ui';
+
+const clanOptions = [
+  { value: 'malefic', label: 'Malefic' },
+  { value: 'naturia', label: 'Naturia' },
+  { value: 'wingeon', label: 'Wingeon' },
+  { value: 'seavell', label: 'Seavell' },
+  { value: 'volcanic', label: 'Volcanic' },
+  { value: 'orebound', label: 'Orebound' },
+  { value: 'psycraft', label: 'Psycraft' },
+  { value: 'gardsen', label: 'Gardsen' },
+];
+
+const professionTiers = [
+  { value: 'E', label: 'E — Novato' },
+  { value: 'D', label: 'D — Iniciante' },
+  { value: 'C', label: 'C — Aprendiz' },
+  { value: 'B', label: 'B — Veterano' },
+  { value: 'A', label: 'A — Expert' },
+  { value: 'S', label: 'S — Mestre' },
+];
 
 export function MemberDetail() {
   const { id } = useParams();
-  const member = getMemberById(id);
+  const { token, user, updateCharacter } = useAuth();
+  const [member, setMember] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [profileForm, setProfileForm] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    apiRequest(`/characters/${encodeURIComponent(id)}`)
+      .then((character) => {
+        if (active) setMember(toMember(character));
+      })
+      .catch((error) => {
+        if (active) setLoadError(error.status === 404 ? '' : error.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, [id, token]);
+
+  if (loading) {
+    return <Section><p className="py-12 text-center text-pxg-text-secondary">Carregando perfil...</p></Section>;
+  }
 
   if (!member) {
     return (
@@ -48,7 +97,7 @@ export function MemberDetail() {
         <div className="text-center py-12">
           <User className="w-16 h-16 mx-auto text-pxg-text-muted mb-4" />
           <h2 className="text-display-sm font-display font-semibold text-pxg-text-primary mb-2">Membro não encontrado</h2>
-          <p className="text-pxg-text-secondary">O membro solicitado não existe ou foi removido.</p>
+          <p className="text-pxg-text-secondary">{loadError || 'O membro solicitado não existe ou foi removido.'}</p>
           <Button asChild className="mt-4">
             <Link to="/members">Voltar para Membros</Link>
           </Button>
@@ -62,6 +111,58 @@ export function MemberDetail() {
     .map(p => ({ key: p, ...member.professions[p] }));
 
   const favoriteHunts = member.favoriteHunts || [];
+  const isOwnProfile = user?.character?.id === member.id;
+
+  function openProfileEditor() {
+    setProfileError('');
+    setProfileForm({
+      level: member.level,
+      vocation: member.vocation === 'Não informada' ? '' : member.vocation,
+      clan_type: member.clanType || '',
+      activity_status: member.activityStatus,
+      peak_hours: member.peakHours || '',
+      favorite_hunts: favoriteHunts.join(', '),
+      bio: member.bio || '',
+      professions: professionOrder.map((name) => ({
+        name,
+        level: member.professions[name]?.level || 0,
+        tier: member.professions[name]?.tier || 'E',
+      })),
+    });
+    setIsEditOpen(true);
+  }
+
+  async function saveProfile(event) {
+    event.preventDefault();
+    setSavingProfile(true);
+    setProfileError('');
+    try {
+      const result = await apiRequest(`/characters/${encodeURIComponent(member.id)}`, {
+        token,
+        method: 'PUT',
+        body: JSON.stringify({
+          level: Number(profileForm.level),
+          vocation: profileForm.vocation,
+          clan_type: profileForm.clan_type || null,
+          activity_status: profileForm.activity_status,
+          peak_hours: profileForm.peak_hours,
+          favorite_hunts: profileForm.favorite_hunts.split(',').map((hunt) => hunt.trim()).filter(Boolean),
+          bio: profileForm.bio,
+          professions: profileForm.professions.map((profession) => ({
+            ...profession,
+            level: Number(profession.level),
+          })),
+        }),
+      });
+      setMember(toMember(result.character));
+      updateCharacter(result.character);
+      setIsEditOpen(false);
+    } catch (error) {
+      setProfileError(error.message);
+    } finally {
+      setSavingProfile(false);
+    }
+  }
 
   return (
     <div className="min-h-screen">
@@ -87,6 +188,9 @@ export function MemberDetail() {
                 Pedir Empréstimo
               </Link>
             </Button>
+            {isOwnProfile && (
+              <Button onClick={openProfileEditor}>Editar meu perfil</Button>
+            )}
           </div>
         }
       >
@@ -128,12 +232,14 @@ export function MemberDetail() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 justify-center lg:justify-end">
-                <Button asChild variant="secondary">
-                  <Link to={`https://discord.com/users/${member.discordId?.split('#')[0]}`} target="_blank" rel="noopener">
-                    <MessageSquare className="w-4 h-4 mr-1" />
-                    Discord
-                  </Link>
-                </Button>
+                {member.discordId && (
+                  <Button asChild variant="secondary">
+                    <a href={`https://discord.com/users/${member.discordId}`} target="_blank" rel="noopener noreferrer">
+                      <MessageSquare className="w-4 h-4 mr-1" />
+                      Discord
+                    </a>
+                  </Button>
+                )}
                 <Button asChild>
                   <Link to={`/items/request?target=${member.id}`}>
                     <ShoppingCart className="w-4 h-4 mr-1" />
@@ -208,12 +314,12 @@ export function MemberDetail() {
               <CardContent>
                 <div className="space-y-4">
                   {professions.map((prof) => (
-                    <Progress.SkillProgress
+                    <SkillProgress
                       key={prof.key}
                       profession={prof.key}
                       level={prof.level}
                       tier={prof.tier}
-                      maxLevel={100}
+                      maxLevel={120}
                     />
                   ))}
                   {professions.length === 0 && (
@@ -285,22 +391,16 @@ export function MemberDetail() {
                     </span>
                   </Link>
                 </Button>
-                <Button variant="ghost" fullWidth asChild>
-                  <Link to={`https://discord.com/users/${member.discordId?.split('#')[0]}`} target="_blank" rel="noopener">
-                    <span className="flex items-center justify-center gap-2">
-                      <MessageSquare className="w-4 h-4" />
-                      Enviar Mensagem no Discord
-                    </span>
-                  </Link>
-                </Button>
-                <Button variant="ghost" fullWidth asChild>
-                  <Link to={`/members/${member.id}/history`}>
-                    <span className="flex items-center justify-center gap-2">
-                      <Sparkles className="w-4 h-4" />
-                      Ver Histórico de Trocas
-                    </span>
-                  </Link>
-                </Button>
+                {member.discordId && (
+                  <Button variant="ghost" fullWidth asChild>
+                    <a href={`https://discord.com/users/${member.discordId}`} target="_blank" rel="noopener noreferrer">
+                      <span className="flex items-center justify-center gap-2">
+                        <MessageSquare className="w-4 h-4" />
+                        Enviar Mensagem no Discord
+                      </span>
+                    </a>
+                  </Button>
+                )}
               </CardContent>
             </Card>
 
@@ -344,6 +444,107 @@ export function MemberDetail() {
           </div>
         </div>
       </Section>
+      <Modal
+        isOpen={isEditOpen}
+        onClose={() => setIsEditOpen(false)}
+        title="Editar meu perfil PXG"
+        description="Atualize seus dados de jogo e os níveis das profissões."
+        size="xl"
+      >
+        {profileForm && (
+          <form onSubmit={saveProfile} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input
+                label="Level do personagem"
+                type="number"
+                min={1}
+                max={10000}
+                value={profileForm.level}
+                onChange={(event) => setProfileForm({ ...profileForm, level: event.target.value })}
+                required
+              />
+              <Input
+                label="Vocação"
+                value={profileForm.vocation}
+                onChange={(event) => setProfileForm({ ...profileForm, vocation: event.target.value })}
+                maxLength={60}
+              />
+              <Select
+                label="Clã"
+                value={profileForm.clan_type}
+                onChange={(event) => setProfileForm({ ...profileForm, clan_type: event.target.value })}
+                options={[{ value: '', label: 'Não informado' }, ...clanOptions]}
+              />
+              <Select
+                label="Status"
+                value={profileForm.activity_status}
+                onChange={(event) => setProfileForm({ ...profileForm, activity_status: event.target.value })}
+                options={[
+                  { value: 'online', label: 'Online' },
+                  { value: 'offline', label: 'Offline' },
+                ]}
+              />
+              <Input
+                label="Horário de pico"
+                value={profileForm.peak_hours}
+                onChange={(event) => setProfileForm({ ...profileForm, peak_hours: event.target.value })}
+                maxLength={100}
+                placeholder="Ex.: noites e fins de semana"
+              />
+              <Input
+                label="Hunts favoritas (separadas por vírgula)"
+                value={profileForm.favorite_hunts}
+                onChange={(event) => setProfileForm({ ...profileForm, favorite_hunts: event.target.value })}
+                placeholder="Ex.: Nightmare, Outland"
+              />
+            </div>
+            <div>
+              <h3 className="mb-3 font-display font-semibold text-pxg-text-primary">Níveis das profissões</h3>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {profileForm.professions.map((profession, index) => (
+                  <div key={profession.name} className="grid grid-cols-2 gap-3">
+                    <Input
+                      label={`${professionInfo[profession.name].name} — level`}
+                      type="number"
+                      min={0}
+                      max={120}
+                      value={profession.level}
+                      onChange={(event) => {
+                        const professions = [...profileForm.professions];
+                        professions[index] = { ...profession, level: event.target.value };
+                        setProfileForm({ ...profileForm, professions });
+                      }}
+                      required
+                    />
+                    <Select
+                      id={`profession-${profession.name}-tier`}
+                      label="Tier"
+                      value={profession.tier}
+                      onChange={(event) => {
+                        const professions = [...profileForm.professions];
+                        professions[index] = { ...profession, tier: event.target.value };
+                        setProfileForm({ ...profileForm, professions });
+                      }}
+                      options={professionTiers}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <Textarea
+              label="Sobre mim"
+              value={profileForm.bio}
+              onChange={(event) => setProfileForm({ ...profileForm, bio: event.target.value })}
+              maxLength={500}
+            />
+            {profileError && <p className="text-body-sm text-pxg-accent-neonRed" role="alert">{profileError}</p>}
+            <div className="modal-footer">
+              <Button type="button" variant="ghost" onClick={() => setIsEditOpen(false)}>Cancelar</Button>
+              <Button type="submit" disabled={savingProfile}>{savingProfile ? 'Salvando...' : 'Salvar perfil'}</Button>
+            </div>
+          </form>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -1,14 +1,5 @@
-import Database from 'better-sqlite3';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-import { v4 as uuidv4 } from 'uuid';
-import bcrypt from 'bcryptjs';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const dbPath = join(__dirname, '../../data/pxg-clan.db');
-const db = new Database(dbPath);
+import 'dotenv/config';
+import { db } from './database.js';
 
 // Enable WAL mode for better concurrency
 db.pragma('journal_mode = WAL');
@@ -20,11 +11,12 @@ const schema = `
 -- Users table (Discord OAuth users)
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
-  discord_id TEXT UNIQUE NOT NULL,
+  discord_id TEXT UNIQUE,
   username TEXT NOT NULL,
   discriminator TEXT,
   avatar TEXT,
-  email TEXT,
+  email TEXT COLLATE NOCASE UNIQUE,
+  password_hash TEXT,
   access_token TEXT,
   refresh_token TEXT,
   token_expires_at INTEGER,
@@ -56,7 +48,7 @@ CREATE TABLE IF NOT EXISTS characters (
 CREATE TABLE IF NOT EXISTS professions (
   id TEXT PRIMARY KEY,
   character_id TEXT NOT NULL,
-  name TEXT NOT NULL CHECK (name IN ('stylist', 'adventurer', 'engineer', 'farmer', 'alchemist', 'breeder', 'explorer')),
+  name TEXT NOT NULL CHECK (name IN ('stylist', 'adventurer', 'engineer', 'professor', 'farmer', 'alchemist', 'breeder', 'explorer')),
   level INTEGER DEFAULT 0,
   tier TEXT DEFAULT 'E' CHECK (tier IN ('S', 'A', 'B', 'C', 'D', 'E')),
   rank TEXT DEFAULT 'Novice',
@@ -156,6 +148,59 @@ CREATE INDEX IF NOT EXISTS idx_announcements_pinned ON announcements(pinned, cre
 
 db.exec(schema);
 console.log('Database schema created successfully!');
+
+const professionTable = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'professions'").get();
+if (professionTable && !professionTable.sql.includes("'professor'")) {
+  db.pragma('foreign_keys = OFF');
+  db.pragma('legacy_alter_table = ON');
+  try {
+    db.exec(`
+      BEGIN IMMEDIATE;
+      ALTER TABLE professions RENAME TO professions_before_professor;
+      CREATE TABLE professions (
+        id TEXT PRIMARY KEY,
+        character_id TEXT NOT NULL,
+        name TEXT NOT NULL CHECK (name IN ('stylist', 'adventurer', 'engineer', 'professor', 'farmer', 'alchemist', 'breeder', 'explorer')),
+        level INTEGER DEFAULT 0,
+        tier TEXT DEFAULT 'E' CHECK (tier IN ('S', 'A', 'B', 'C', 'D', 'E')),
+        rank TEXT DEFAULT 'Novice',
+        progress INTEGER DEFAULT 0,
+        experience INTEGER DEFAULT 0,
+        created_at INTEGER DEFAULT (strftime('%s', 'now')),
+        updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+        FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE,
+        UNIQUE(character_id, name)
+      );
+      INSERT INTO professions
+      SELECT id, character_id, name, level, tier, rank, progress, experience, created_at, updated_at
+      FROM professions_before_professor;
+      DROP TABLE professions_before_professor;
+      CREATE INDEX IF NOT EXISTS idx_professions_character ON professions(character_id);
+      COMMIT;
+    `);
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  } finally {
+    db.pragma('legacy_alter_table = OFF');
+    db.pragma('foreign_keys = ON');
+  }
+}
+
+db.prepare(`
+  INSERT OR IGNORE INTO clan_info (
+    id, name, tag, slogan, emblem, recruitment_status, founded_date, max_members
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`).run(
+  'main',
+  'Lá Eles',
+  'LAELES',
+  'Se marcar bobeira na hunt... Lá Eles!',
+  '👻',
+  'open',
+  Math.floor(new Date('2024-01-15').getTime() / 1000),
+  50
+);
 
 db.close();
 console.log('Database initialization complete.');

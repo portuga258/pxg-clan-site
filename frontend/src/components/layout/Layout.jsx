@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { Navbar } from './Navbar';
 import { cn } from '../../lib/utils';
+import { clanInfo } from '../../data/mockData';
 
 export function Layout({ user, onLogout, children }) {
   const content = children ?? <Outlet />;
@@ -18,16 +19,18 @@ export function Layout({ user, onLogout, children }) {
               {'© 2026 Lá Eles - Clan PokéXGames. Não oficial, feito por fãs para fãs.'}
             </p>
             <div className="flex items-center gap-4">
+              {clanInfo.discordUrl && (
+                <a
+                  href={clanInfo.discordUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-caption text-pxg-text-secondary hover:text-pxg-accent-cyan transition-colors"
+                >
+                  Discord
+                </a>
+              )}
               <a
-                href="https://discord.gg/pxg-clan"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-caption text-pxg-text-secondary hover:text-pxg-accent-cyan transition-colors"
-              >
-                Discord
-              </a>
-              <a
-                href="https://github.com"
+                href="https://github.com/portuga258/pxg-clan-site"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-caption text-pxg-text-secondary hover:text-pxg-accent-cyan transition-colors"
@@ -63,9 +66,9 @@ export function PageLayout({ title, description, children, className, actions })
   );
 }
 
-export function Section({ title, description, children, className, action }) {
+export function Section({ title, description, children, className, action, id }) {
   return (
-    <section className={cn('section', className)} aria-labelledby={title ? 'section-title' : undefined}>
+    <section id={id} className={cn('section', className)} aria-labelledby={title ? 'section-title' : undefined}>
       {(title || action) && (
         <header className="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
           <div>

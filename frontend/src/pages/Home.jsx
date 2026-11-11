@@ -1,6 +1,9 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { formatRelativeTime } from '../lib/utils';
+import { apiRequest, toMember } from '../lib/api';
+import { useAuth } from '../lib/AuthContext';
 import {
   Trophy,
   TrendingUp,
@@ -15,16 +18,14 @@ import {
   Package,
   ShoppingCart,
 } from '../lib/icons';
-import { clanInfo, announcements, members } from '../data/mockData';
+import { clanInfo } from '../data/mockData';
 import {
   Card,
   CardHeader,
   CardTitle,
   CardDescription,
   CardContent,
-  CardFooter,
   Badge,
-  ClanBadge,
   RankTierBadge,
   Avatar,
   Button,
@@ -34,6 +35,34 @@ import {
 } from '../components/ui';
 
 export function Home() {
+  const { token } = useAuth();
+  const [members, setMembers] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
+  const [clanStats, setClanStats] = useState(null);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      apiRequest('/characters?limit=100'),
+      apiRequest('/announcements?limit=3'),
+      apiRequest('/clan/stats'),
+    ]).then(([memberResult, announcementResult, statsResult]) => {
+      if (!active) return;
+      setMembers(memberResult.data.map(toMember));
+      setAnnouncements(announcementResult.data.map((announcement) => ({
+        ...announcement,
+        author: announcement.author_name,
+        createdAt: new Date(announcement.created_at * 1000).toISOString(),
+      })));
+      setClanStats(statsResult);
+    }).catch((error) => {
+      if (active) setLoadError(`Não foi possível carregar os dados do clan: ${error.message}`);
+    });
+
+    return () => { active = false; };
+  }, [token]);
+
   // Top members by level
   const topCombat = [...members]
     .sort((a, b) => b.level - a.level)
@@ -54,35 +83,32 @@ export function Home() {
     {
       label: 'Membros Ativos',
       value: members.filter(m => m.activityStatus === 'online').length,
-      change: '+3 esta semana',
-      trend: 'up',
       icon: Users,
     },
     {
       label: 'Level Médio',
-      value: Math.round(members.reduce((sum, m) => sum + m.level, 0) / members.length),
-      change: '+12 vs mês passado',
-      trend: 'up',
+      value: members.length
+        ? Math.round(members.reduce((sum, m) => sum + m.level, 0) / members.length)
+        : 0,
       icon: TrendingUp,
     },
     {
       label: 'Pokémons Emprestados',
-      value: 8,
-      change: '2 empréstimos ativos',
-      trend: 'up',
+      value: clanStats?.pokemonLoans?.find((entry) => entry.status === 'borrowed')?.count || 0,
       icon: Sparkles,
     },
     {
       label: 'Pedidos de Itens',
-      value: 12,
-      change: '5 em andamento',
-      trend: 'up',
+      value: clanStats?.itemRequests?.reduce((sum, entry) => sum + entry.count, 0) || 0,
       icon: Zap,
     },
   ];
 
   return (
     <div className="min-h-screen">
+      {loadError && (
+        <p className="container-pxg pt-4 text-body-sm text-pxg-accent-neonRed" role="alert">{loadError}</p>
+      )}
       {/* Hero Banner */}
       <section className="relative overflow-hidden" aria-labelledby="hero-title">
         <div className="absolute inset-0 bg-gradient-to-br from-pxg-accent-purple/20 via-transparent to-pxg-accent-cyan/10" />
@@ -118,19 +144,17 @@ export function Home() {
                   <ChevronRight className="w-5 h-5" />
                 </Link>
               </Button>
-              <Button variant="secondary" size="lg" asChild>
-                <Link to={clanInfo.discordUrl} target="_blank" rel="noopener noreferrer">
-                  <span>Entrar no Discord</span>
-                </Link>
-              </Button>
+              {clanInfo.discordUrl && (
+                <Button variant="secondary" size="lg" asChild>
+                  <a href={clanInfo.discordUrl} target="_blank" rel="noopener noreferrer">
+                    <span>Entrar no Discord</span>
+                  </a>
+                </Button>
+              )}
             </div>
 
             {/* Status badges */}
             <div className="flex flex-wrap items-center gap-4 mt-8 text-body-sm">
-              <Badge variant={clanInfo.recruitmentStatus === 'open' ? 'available' : 'borrowed'} className="gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-current animate-pulse" />
-                {clanInfo.recruitmentStatus === 'open' ? 'Recrutamento Aberto' : 'Recrutamento Fechado'}
-              </Badge>
               <span className="text-pxg-text-muted flex items-center gap-1.5">
                 <Users className="w-4 h-4" />
                 {members.length}/{clanInfo.maxMembers} membros
@@ -168,7 +192,7 @@ export function Home() {
           {/* Left Column - Announcements & Rankings */}
           <div className="lg:col-span-2 space-y-6">
             {/* Announcements */}
-            <Section title="📢 Mural de Avisos" description="Últimas notícias e comunicados da liderança">
+            <Section title="📢 Mural de Avisos" description="Últimas notícias e comunicados da liderança" className="scroll-mt-20" id="announcements">
               <div className="space-y-3">
                 {recentAnnouncements.map((announcement) => (
                   <Card key={announcement.id} hover className="group">
@@ -206,9 +230,12 @@ export function Home() {
                     </CardContent>
                   </Card>
                 ))}
+                {recentAnnouncements.length === 0 && (
+                  <Card><CardContent className="py-8 text-center text-pxg-text-secondary">Ainda não há avisos publicados.</CardContent></Card>
+                )}
                 <div className="text-center pt-2">
                   <Button variant="ghost" asChild>
-                    <Link to="/announcements">Ver todos os avisos</Link>
+                    <a href="#announcements">Ver mural de avisos</a>
                   </Button>
                 </div>
               </div>
@@ -334,14 +361,16 @@ export function Home() {
                     </span>
                   </Link>
                 </Button>
-                <Button variant="ghost" fullWidth asChild>
-                  <Link to={clanInfo.discordUrl} target="_blank" rel="noopener noreferrer">
-                    <span className="flex items-center justify-center gap-2">
-                      <MessageSquare className="w-4 h-4" />
-                      Discord do Clan
-                    </span>
-                  </Link>
-                </Button>
+                {clanInfo.discordUrl && (
+                  <Button variant="ghost" fullWidth asChild>
+                    <a href={clanInfo.discordUrl} target="_blank" rel="noopener noreferrer">
+                      <span className="flex items-center justify-center gap-2">
+                        <MessageSquare className="w-4 h-4" />
+                        Discord do Clan
+                      </span>
+                    </a>
+                  </Button>
+                )}
               </CardContent>
             </Card>
 
@@ -402,6 +431,9 @@ export function Home() {
                         </div>
                       </Link>
                     ))}
+                  {members.filter((member) => member.activityStatus === 'online').length === 0 && (
+                    <p className="py-3 text-body-sm text-pxg-text-secondary">Nenhum membro online no momento.</p>
+                  )}
                 </div>
               </CardContent>
             </Card>

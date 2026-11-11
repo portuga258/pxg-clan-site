@@ -1,18 +1,10 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import Database from 'better-sqlite3';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { requireRole } from '../middleware/auth.js';
+import { db } from '../utils/database.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const dbPath = join(__dirname, '../../data/pxg-clan.db');
-const db = new Database(dbPath);
-
-const VALID_PROFESSIONS = ['stylist', 'adventurer', 'engineer', 'farmer', 'alchemist', 'breeder', 'explorer'];
+const VALID_PROFESSIONS = ['engineer', 'professor', 'stylist', 'adventurer'];
 const VALID_TIERS = ['S', 'A', 'B', 'C', 'D', 'E'];
 
 const router = express.Router();

@@ -1,6 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
+import { apiRequest, toMember } from '../lib/api';
+import { useAuth } from '../lib/AuthContext';
 import {
   Search,
   Filter,
@@ -12,7 +14,7 @@ import {
   Crown,
   Shield,
 } from '../lib/icons';
-import { members, professionOrder, getClanTypeName } from '../data/mockData';
+import { professionOrder, getClanTypeName } from '../data/mockData';
 import {
   Card,
   CardContent,
@@ -28,11 +30,31 @@ import {
 } from '../components/ui';
 
 export function Members() {
+  const { token } = useAuth();
+  const [members, setMembers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [clanFilter, setClanFilter] = useState('all');
   const [professionFilter, setProfessionFilter] = useState('all');
   const [sortBy, setSortBy] = useState('level');
   const [showFilters, setShowFilters] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    apiRequest('/characters?limit=100')
+      .then((result) => {
+        if (active) setMembers(result.data.map(toMember));
+      })
+      .catch((error) => {
+        if (active) setLoadError(`Não foi possível carregar os membros: ${error.message}`);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, [token]);
 
   const clans = [...new Set(members.map(m => m.clanType))];
   const professions = professionOrder;
@@ -157,6 +179,7 @@ export function Members() {
             {filteredMembers.length} de {members.length} membros
             {onlineCount > 0 && <span className="ml-2 flex items-center gap-1 text-pxg-accent-neonGreen"><span className="w-2 h-2 rounded-full bg-current animate-pulse" /> {onlineCount} online</span>}
           </p>
+          {loadError && <p className="mt-2 text-body-sm text-pxg-accent-neonRed" role="alert">{loadError}</p>}
         </div>
 
         {/* Members Grid */}
@@ -211,10 +234,15 @@ export function Members() {
             </Link>
           ))}
 
-          {filteredMembers.length === 0 && (
+          {!loading && filteredMembers.length === 0 && (
             <div className="col-span-full text-center py-12">
               <User className="w-12 h-12 mx-auto text-pxg-text-muted mb-4" />
-              <p className="text-pxg-text-secondary">Nenhum membro encontrado com esses filtros</p>
+              <p className="text-pxg-text-secondary">
+                {members.length ? 'Nenhum membro encontrado com esses filtros' : 'Ainda não há membros cadastrados.'}
+              </p>
+              {!members.length && (
+                <Button asChild className="mt-4"><Link to="/register">Criar uma conta</Link></Button>
+              )}
             </div>
           )}
         </Grid>

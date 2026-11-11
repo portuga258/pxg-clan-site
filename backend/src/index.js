@@ -1,10 +1,11 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import dotenv from 'dotenv';
+import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
 
 import characterRoutes from './routes/characters.js';
 import professionRoutes from './routes/professions.js';
@@ -15,8 +16,6 @@ import clanRoutes from './routes/clan.js';
 import authRoutes from './routes/auth.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { authenticateToken, optionalAuth } from './middleware/auth.js';
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -47,12 +46,21 @@ app.get('/api/health', (req, res) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/characters', authenticateToken, characterRoutes);
+app.use('/api/characters', optionalAuth, characterRoutes);
 app.use('/api/professions', authenticateToken, professionRoutes);
 app.use('/api/pokemon-loans', authenticateToken, pokemonLoanRoutes);
 app.use('/api/item-requests', authenticateToken, itemRequestRoutes);
 app.use('/api/announcements', optionalAuth, announcementRoutes);
 app.use('/api/clan', optionalAuth, clanRoutes);
+
+const frontendDist = resolve(__dirname, '../../frontend/dist');
+if (existsSync(frontendDist)) {
+  app.use(express.static(frontendDist));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next();
+    return res.sendFile(join(frontendDist, 'index.html'));
+  });
+}
 
 // Error handling
 app.use(notFoundHandler);

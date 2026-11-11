@@ -1,18 +1,14 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import Database from 'better-sqlite3';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { requireRole } from '../middleware/auth.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const dbPath = join(__dirname, '../../data/pxg-clan.db');
-const db = new Database(dbPath);
+import { db } from '../utils/database.js';
 
 const router = express.Router();
+const PROFILE_PROFESSIONS = ['engineer', 'professor', 'stylist', 'adventurer'];
+const PROFESSION_TIERS = ['S', 'A', 'B', 'C', 'D', 'E'];
+const CLAN_TYPES = ['malefic', 'naturia', 'wingeon', 'seavell', 'volcanic', 'orebound', 'psycraft', 'gardsen'];
+const TIER_LABELS = { S: 'Mestre', A: 'Expert', B: 'Veterano', C: 'Aprendiz', D: 'Iniciante', E: 'Novato' };
 
 /**
  * GET /api/characters
@@ -61,7 +57,12 @@ router.get('/', asyncHandler(async (req, res) => {
   const characters = db.prepare(query).all(...params);
 
   // Get total count
-  const countQuery = `SELECT COUNT(*) as total FROM characters c ${whereClause}`;
+  const countQuery = `
+    SELECT COUNT(*) as total
+    FROM characters c
+    LEFT JOIN users u ON c.user_id = u.id
+    ${whereClause}
+  `;
   const total = db.prepare(countQuery).all(...params.slice(0, -2))[0].total;
 
   // Get professions for each character
@@ -183,7 +184,7 @@ router.post('/', requireRole('leader', 'officer'), asyncHandler(async (req, res)
  */
 router.put('/:id', asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { level, vocation, clan_type, activity_status, peak_hours, favorite_hunts, bio } = req.body;
+  const { level, vocation, clan_type, activity_status, peak_hours, favorite_hunts, bio, professions } = req.body;
 
   const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
   if (!character) {
@@ -191,8 +192,48 @@ router.put('/:id', asyncHandler(async (req, res) => {
   }
 
   // Check permission: users can only update their own character, leaders/officers can update any
-  if (req.user.role !== 'leader' && req.user.role !== 'officer' && character.user_id !== req.user.id) {
+  if (req.user?.role !== 'leader' && req.user?.role !== 'officer' && character.user_id !== req.user?.id) {
     throw new AppError('Sem permissão para editar este personagem', 403);
+  }
+
+  if (level !== undefined && (!Number.isInteger(level) || level < 1 || level > 10000)) {
+    throw new AppError('Level deve ser um número entre 1 e 10000', 400);
+  }
+  if (vocation !== undefined && (typeof vocation !== 'string' || vocation.length > 60)) {
+    throw new AppError('Vocação deve ter no máximo 60 caracteres', 400);
+  }
+  if (clan_type !== undefined && clan_type !== null && clan_type !== '' && !CLAN_TYPES.includes(clan_type)) {
+    throw new AppError('Clã inválido', 400);
+  }
+  if (activity_status !== undefined && !['online', 'offline'].includes(activity_status)) {
+    throw new AppError('Status de atividade inválido', 400);
+  }
+  if (peak_hours !== undefined && (typeof peak_hours !== 'string' || peak_hours.length > 100)) {
+    throw new AppError('Horário de pico deve ter no máximo 100 caracteres', 400);
+  }
+  if (favorite_hunts !== undefined && (!Array.isArray(favorite_hunts) || favorite_hunts.length > 20 || favorite_hunts.some((hunt) => typeof hunt !== 'string' || hunt.length > 80))) {
+    throw new AppError('Informe até 20 hunts com no máximo 80 caracteres cada', 400);
+  }
+  if (bio !== undefined && (typeof bio !== 'string' || bio.length > 500)) {
+    throw new AppError('A descrição deve ter no máximo 500 caracteres', 400);
+  }
+  if (professions !== undefined) {
+    if (!Array.isArray(professions) || professions.length > PROFILE_PROFESSIONS.length) {
+      throw new AppError('Lista de profissões inválida', 400);
+    }
+    const seenProfessions = new Set();
+    for (const profession of professions) {
+      if (!profession || typeof profession !== 'object' || !PROFILE_PROFESSIONS.includes(profession.name) || seenProfessions.has(profession.name)) {
+        throw new AppError('Profissão inválida ou repetida', 400);
+      }
+      if (!Number.isInteger(profession.level) || profession.level < 0 || profession.level > 120) {
+        throw new AppError('Level de profissão deve ser um número entre 0 e 120', 400);
+      }
+      if (!PROFESSION_TIERS.includes(profession.tier)) {
+        throw new AppError('Tier de profissão inválido', 400);
+      }
+      seenProfessions.add(profession.name);
+    }
   }
 
   const updates = [];
@@ -200,27 +241,60 @@ router.put('/:id', asyncHandler(async (req, res) => {
 
   if (level !== undefined) { updates.push('level = ?'); params.push(level); }
   if (vocation !== undefined) { updates.push('vocation = ?'); params.push(vocation); }
-  if (clan_type !== undefined) { updates.push('clan_type = ?'); params.push(clan_type); }
+  if (clan_type !== undefined) { updates.push('clan_type = ?'); params.push(clan_type || null); }
   if (activity_status !== undefined) { updates.push('activity_status = ?'); params.push(activity_status); }
   if (peak_hours !== undefined) { updates.push('peak_hours = ?'); params.push(peak_hours); }
   if (favorite_hunts !== undefined) { updates.push('favorite_hunts = ?'); params.push(JSON.stringify(favorite_hunts)); }
   if (bio !== undefined) { updates.push('bio = ?'); params.push(bio); }
 
-  if (updates.length === 0) {
+  if (updates.length === 0 && professions === undefined) {
     throw new AppError('Nenhum campo para atualizar', 400);
   }
 
-  updates.push('updated_at = ?');
-  params.push(Math.floor(Date.now() / 1000));
-  params.push(id);
+  const now = Math.floor(Date.now() / 1000);
+  const updateProfile = db.transaction(() => {
+    if (updates.length > 0) {
+      updates.push('updated_at = ?');
+      params.push(now, id);
+      db.prepare(`UPDATE characters SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+    }
 
-  db.prepare(`UPDATE characters SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+    if (professions !== undefined) {
+      const saveProfession = db.prepare(`
+        INSERT INTO professions (id, character_id, name, level, tier, rank, progress, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+        ON CONFLICT(character_id, name) DO UPDATE SET
+          level = excluded.level,
+          tier = excluded.tier,
+          rank = excluded.rank,
+          updated_at = excluded.updated_at
+      `);
+      for (const profession of professions) {
+        saveProfession.run(
+          uuidv4(),
+          id,
+          profession.name,
+          profession.level,
+          profession.tier,
+          TIER_LABELS[profession.tier],
+          now,
+          now
+        );
+      }
+    }
+  });
+  updateProfile();
 
   const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
+  const updatedProfessions = db.prepare('SELECT name, level, tier, rank, progress FROM professions WHERE character_id = ?').all(id);
 
   res.json({
     message: 'Personagem atualizado com sucesso',
-    character: { ...updated, favorite_hunts: updated.favorite_hunts ? JSON.parse(updated.favorite_hunts) : [] },
+    character: {
+      ...updated,
+      favorite_hunts: updated.favorite_hunts ? JSON.parse(updated.favorite_hunts) : [],
+      professions: updatedProfessions,
+    },
   });
 }));
 

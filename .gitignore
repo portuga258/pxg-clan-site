@@ -6,3 +6,10 @@ node_modules/
 !.env.example
 dist/
 build/
+backend/data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.db-shm
+*.db-wal
