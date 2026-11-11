@@ -227,7 +227,8 @@ npm run build
 
 ### Railway (frontend e backend no mesmo serviço)
 ```bash
-# railway.json define os comandos de build, start e health check.
+# Configure o diretório raiz do serviço como a raiz deste repositório.
+# railway.json usa `npm run build`, `npm start` e o health check `/api/health`.
 # Configure JWT_SECRET (pelo menos 32 caracteres) e NODE_ENV=production.
 # Adicione um volume persistente montado em /data e configure:
 # DATABASE_PATH=/data/pxg-clan.db
