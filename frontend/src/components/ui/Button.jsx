@@ -1,3 +1,4 @@
+import React from 'react';
 import { cn } from '../../lib/utils';
 
 export function Button({
@@ -10,6 +11,7 @@ export function Button({
   leftIcon,
   rightIcon,
   fullWidth,
+  asChild = false,
   ...props
 }) {
   const variants = {
@@ -25,14 +27,23 @@ export function Button({
     lg: 'btn-lg',
   };
 
+  const classes = cn(
+    variants[variant],
+    sizes[size],
+    fullWidth && 'w-full',
+    className
+  );
+
+  if (asChild && React.isValidElement(children)) {
+    return React.cloneElement(children, {
+      className: cn(classes, children.props.className),
+      ...props,
+    });
+  }
+
   return (
     <button
-      className={cn(
-        variants[variant],
-        sizes[size],
-        fullWidth && 'w-full',
-        className
-      )}
+      className={classes}
       disabled={disabled || loading}
       {...props}
     >

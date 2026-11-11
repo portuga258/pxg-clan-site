@@ -2,12 +2,14 @@ import { Outlet } from 'react-router-dom';
 import { Navbar } from './Navbar';
 import { cn } from '../../lib/utils';
 
-export function Layout({ user, onLogout }) {
+export function Layout({ user, onLogout, children }) {
+  const content = children ?? <Outlet />;
+
   return (
     <div className="min-h-screen bg-pxg-bg-primary">
       <Navbar user={user} onLogout={onLogout} />
       <main className="pt-16 min-h-[calc(100vh-4rem)]" id="main-content" tabIndex={-1}>
-        <Outlet />
+        {content}
       </main>
       <footer className="border-t border-pxg-border-subtle/30 bg-pxg-bg-card/50 backdrop-blur-glass">
         <div className="container-pxg py-6">

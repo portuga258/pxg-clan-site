@@ -12,6 +12,8 @@ import {
   Shield,
   Crown,
   Zap,
+  Package,
+  ShoppingCart,
 } from '../lib/icons';
 import { clanInfo, announcements, members } from '../data/mockData';
 import {

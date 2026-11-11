@@ -3,7 +3,6 @@ import { Layout } from './components/layout/Layout';
 import { Home, Members, MemberDetail, Loans, Items } from './pages';
 
 function App() {
-  // Mock user - in real app this would come from auth context
   const user = {
     characterName: 'Portugap',
     clanType: 'malefic',
@@ -14,8 +13,8 @@ function App() {
 
   return (
     <BrowserRouter>
-      <Layout user={user} onLogout={() => {}}>
-        <Routes>
+      <Routes>
+        <Route element={<Layout user={user} onLogout={() => {}} />}>
           <Route path="/" element={<Home />} />
           <Route path="/members" element={<Members />} />
           <Route path="/members/:id" element={<MemberDetail />} />
@@ -25,8 +24,8 @@ function App() {
           <Route path="/items/request" element={<Items />} />
           <Route path="/loans/request" element={<Loans />} />
           <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Layout>
+        </Route>
+      </Routes>
     </BrowserRouter>
   );
 }
