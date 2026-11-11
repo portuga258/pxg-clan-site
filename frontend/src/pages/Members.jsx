@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { apiRequest, toMember } from '../lib/api';
@@ -59,36 +59,34 @@ export function Members() {
   const clans = [...new Set(members.map(m => m.clanType))];
   const professions = professionOrder;
 
-  const filteredMembers = useMemo(() => {
-    return members
-      .filter(member => {
-        const matchesSearch = member.characterName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          member.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          member.vocation.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredMembers = members
+    .filter(member => {
+      const matchesSearch = member.characterName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        member.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        member.vocation.toLowerCase().includes(searchQuery.toLowerCase());
 
-        const matchesClan = clanFilter === 'all' || member.clanType === clanFilter;
-        const matchesProfession = professionFilter === 'all' ||
-          (member.professions[professionFilter] && member.professions[professionFilter].level > 0);
+      const matchesClan = clanFilter === 'all' || member.clanType === clanFilter;
+      const matchesProfession = professionFilter === 'all' ||
+        (member.professions[professionFilter] && member.professions[professionFilter].level > 0);
 
-        return matchesSearch && matchesClan && matchesProfession;
-      })
-      .sort((a, b) => {
-        switch (sortBy) {
-          case 'level':
-            return b.level - a.level;
-          case 'name':
-            return a.characterName.localeCompare(b.characterName);
-          case 'joinDate':
-            return new Date(a.joinDate) - new Date(b.joinDate);
-          case 'stylist':
-            return (b.professions.stylist?.level || 0) - (a.professions.stylist?.level || 0);
-          case 'adventurer':
-            return (b.professions.adventurer?.level || 0) - (a.professions.adventurer?.level || 0);
-          default:
-            return 0;
-        }
-      });
-  }, [searchQuery, clanFilter, professionFilter, sortBy]);
+      return matchesSearch && matchesClan && matchesProfession;
+    })
+    .sort((a, b) => {
+      switch (sortBy) {
+        case 'level':
+          return b.level - a.level;
+        case 'name':
+          return a.characterName.localeCompare(b.characterName);
+        case 'joinDate':
+          return new Date(a.joinDate) - new Date(b.joinDate);
+        case 'stylist':
+          return (b.professions.stylist?.level || 0) - (a.professions.stylist?.level || 0);
+        case 'adventurer':
+          return (b.professions.adventurer?.level || 0) - (a.professions.adventurer?.level || 0);
+        default:
+          return 0;
+      }
+    });
 
   const onlineCount = members.filter(m => m.activityStatus === 'online').length;
 
