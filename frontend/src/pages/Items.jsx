@@ -54,10 +54,10 @@ import {
 } from '../components/ui';
 
 const statusConfig = {
-  open: { icon: AlertTriangle, color: 'text-pxg-accent-cyan', label: 'Aberto', variant: 'open' },
-  collecting: { icon: Loader2, color: 'text-pxg-accent-gold', label: 'Em Coleta', variant: 'collecting' },
-  ready: { icon: CheckCircle, color: 'text-pxg-accent-neonGreen', label: 'Pronto p/ Entrega', variant: 'ready' },
-  completed: { icon: XCircle, color: 'text-pxg-text-muted', label: 'Concluído', variant: 'completed' },
+  open: { icon: Icons.AlertTriangle, color: 'text-pxg-accent-cyan', label: 'Aberto', variant: 'open' },
+  collecting: { icon: Icons.Loader2, color: 'text-pxg-accent-gold', label: 'Em Coleta', variant: 'collecting' },
+  ready: { icon: Icons.CheckCircle, color: 'text-pxg-accent-neonGreen', label: 'Pronto p/ Entrega', variant: 'ready' },
+  completed: { icon: Icons.XCircle, color: 'text-pxg-text-muted', label: 'Concluído', variant: 'completed' },
 };
 
 export function Items() {
