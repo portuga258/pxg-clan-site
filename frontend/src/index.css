@@ -219,6 +219,31 @@
     @apply p-4 space-y-4;
   }
 
+  .profile-editor-modal {
+    @apply max-w-6xl;
+    max-height: calc(100dvh - 2rem);
+  }
+
+  .profile-editor-modal > .modal-body {
+    @apply p-4;
+  }
+
+  .profile-editor-modal .label {
+    @apply mb-1 text-caption;
+  }
+
+  .profile-editor-modal .input {
+    @apply px-3 py-2;
+  }
+
+  .profile-editor-form {
+    @apply space-y-3;
+  }
+
+  .profile-editor-form .modal-footer {
+    @apply p-0 pt-3;
+  }
+
   .modal-footer {
     @apply flex items-center justify-end gap-3 p-4 border-t border-pxg-border-subtle/30;
   }

@@ -16,6 +16,11 @@ export function Modal({
 }) {
   const modalRef = useRef(null);
   const previousActiveElement = useRef(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (isOpen) {
@@ -25,7 +30,7 @@ export function Modal({
 
       const handleKeyDown = (e) => {
         if (e.key === 'Escape') {
-          onClose();
+          onCloseRef.current();
         }
         if (e.key === 'Tab') {
           const focusableElements = modalRef.current?.querySelectorAll(
@@ -52,7 +57,7 @@ export function Modal({
         previousActiveElement.current?.focus();
       };
     }
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

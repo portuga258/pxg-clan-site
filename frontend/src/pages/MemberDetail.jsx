@@ -653,12 +653,13 @@ export function MemberDetail() {
         isOpen={isEditOpen}
         onClose={() => setIsEditOpen(false)}
         title="Editar meu perfil PXG"
-        description="Atualize seus dados de jogo e os níveis das profissões."
-        size="xl"
+        description="Atualize seus dados de jogo e profissões."
+        size="full"
+        className="profile-editor-modal"
       >
         {profileForm && (
-          <form onSubmit={saveProfile} className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
+          <form onSubmit={saveProfile} className="profile-editor-form">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <Input
                 label="Level do personagem"
                 type="number"
@@ -704,12 +705,12 @@ export function MemberDetail() {
               />
             </div>
             <div>
-              <h3 className="mb-3 font-display font-semibold text-pxg-text-primary">Níveis das profissões</h3>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <h3 className="mb-2 font-display font-semibold text-pxg-text-primary">Profissões</h3>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 {profileForm.professions.map((profession, index) => (
-                  <div key={profession.name} className="grid grid-cols-2 gap-3">
+                  <div key={profession.name} className="grid grid-cols-2 gap-2 rounded-lg border border-pxg-border-subtle/30 p-2">
                     <Input
-                      label={`${professionInfo[profession.name].name} — level`}
+                      label={`${professionInfo[profession.name].name} · level`}
                       type="number"
                       min={0}
                       max={120}
@@ -741,6 +742,7 @@ export function MemberDetail() {
               value={profileForm.bio}
               onChange={(event) => setProfileForm({ ...profileForm, bio: event.target.value })}
               maxLength={500}
+              rows={2}
             />
             {profileError && <p className="text-body-sm text-pxg-accent-neonRed" role="alert">{profileError}</p>}
             <div className="modal-footer">
